@@ -1,0 +1,68 @@
+#!/usr/bin/env node
+
+const { execFileSync } = require("child_process");
+const path = require("path");
+const os = require("os");
+
+const PLATFORM_MAP = {
+  "darwin-arm64": "@mucan54/envs3-darwin-arm64",
+  "darwin-x64": "@mucan54/envs3-darwin-x64",
+  "linux-x64": "@mucan54/envs3-linux-x64",
+  "linux-arm64": "@mucan54/envs3-linux-arm64",
+  "win32-x64": "@mucan54/envs3-win32-x64",
+};
+
+const key = `${os.platform()}-${os.arch()}`;
+const pkg = PLATFORM_MAP[key];
+const binName = os.platform() === "win32" ? "envs3.exe" : "envs3";
+
+function findBinary() {
+  // 1. Try platform-specific package
+  if (pkg) {
+    try {
+      const pkgDir = path.dirname(require.resolve(`${pkg}/package.json`));
+      return path.join(pkgDir, "bin", binName);
+    } catch {}
+  }
+
+  // 2. Try local binary (placed by postinstall.js fallback)
+  const localBin = path.join(__dirname, binName === "envs3" ? "envs3-native" : "envs3-native.exe");
+  try {
+    require("fs").accessSync(localBin, require("fs").constants.X_OK);
+    return localBin;
+  } catch {}
+
+  // 3. Try sibling directory (local development / monorepo)
+  if (pkg) {
+    const siblingName = pkg.replace("@mucan54/", "");
+    const siblingBin = path.join(__dirname, "..", "..", siblingName, "bin", binName);
+    try {
+      require("fs").accessSync(siblingBin, require("fs").constants.X_OK);
+      return siblingBin;
+    } catch {}
+  }
+
+  return null;
+}
+
+const binPath = findBinary();
+
+if (!binPath) {
+  console.error(
+    `envs3: unsupported platform ${key}\n\n` +
+    `Supported platforms: ${Object.keys(PLATFORM_MAP).join(", ")}\n\n` +
+    `You can install the Go binary directly:\n` +
+    `  go install github.com/mucan54/envs3/cmd/envs3@latest`
+  );
+  process.exit(1);
+}
+
+try {
+  execFileSync(binPath, process.argv.slice(2), { stdio: "inherit" });
+} catch (e) {
+  if (e.status !== undefined) {
+    process.exit(e.status);
+  }
+  console.error("envs3: failed to run binary:", e.message);
+  process.exit(1);
+}

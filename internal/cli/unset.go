@@ -27,7 +27,7 @@ var unsetCmd = &cobra.Command{
 		env := resolveEnv(cfg, unsetEnv)
 
 		// Confirmation
-		isDefault := (env == cfg.Defaults.Environment)
+		isDefault := (env == cfg.DefaultEnv)
 		fmt.Printf("  Target: %s\n\n", strings.ToUpper(env))
 		fmt.Println("  Changes:")
 		for _, k := range args {

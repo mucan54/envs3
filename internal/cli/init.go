@@ -35,7 +35,6 @@ var initCmd = &cobra.Command{
 		fmt.Println("  4. Custom S3-compatible")
 		choice := prompt("Select (1-4): ")
 
-		storageType := "s3"
 		var endpoint, region string
 		switch choice {
 		case "1":
@@ -55,19 +54,19 @@ var initCmd = &cobra.Command{
 			}
 		}
 
-		// Credentials (read-write for admin)
-		fmt.Println()
-		fmt.Println("Admin S3 credentials (read-write access):")
-		writeKeyID := prompt("Access Key ID: ")
-		writeSecretKey := prompt("Secret Access Key: ")
-
-		bucket := prompt("Bucket name: ")
-
 		// Read-only credentials
 		fmt.Println()
 		fmt.Println("Read-only S3 credentials (for team members):")
 		readKeyID := prompt("Read-only Access Key ID: ")
 		readSecretKey := prompt("Read-only Secret Access Key: ")
+
+		// Write credentials
+		fmt.Println()
+		fmt.Println("Admin S3 credentials (read-write access):")
+		writeKeyID := prompt("Read-write Access Key ID: ")
+		writeSecretKey := prompt("Read-write Secret Access Key: ")
+
+		bucket := prompt("Bucket name: ")
 
 		projectName := prompt("Project name: ")
 		if !projectNameRegex.MatchString(projectName) {
@@ -76,7 +75,7 @@ var initCmd = &cobra.Command{
 
 		email := getUserEmail()
 
-		// Default environments
+		// Environments
 		envsInput := prompt("Environments (comma-separated, default: local,staging,production): ")
 		if envsInput == "" {
 			envsInput = "local,staging,production"
@@ -144,34 +143,22 @@ var initCmd = &cobra.Command{
 			fmt.Printf("✓ Environment '%s' created (%d keys imported)\n", importEnv, len(importData))
 		}
 
-		// Write .envs3.json
-		cfg := &format.ProjectConfig{
-			SchemaVersion: 1,
-			Project:       projectName,
-			Storage: format.StorageConfig{
-				Type:                storageType,
-				Endpoint:            endpoint,
-				Bucket:              bucket,
-				Region:              region,
-				ReadAccessKeyID:     readKeyID,
-				ReadSecretAccessKey: readSecretKey,
-			},
-			Defaults: format.DefaultsConfig{
-				Environment: envs[0],
-			},
-		}
-		if err := config.SaveProjectConfig(".", cfg); err != nil {
-			return fmt.Errorf("save config: %w", err)
-		}
-		fmt.Println("✓ .envs3.json created (commit this file)")
-
-		// Save admin credentials
-		if err := config.SaveAdminCredentials(projectName, &format.AdminCredentials{
+		// Write .env.envs3 (the primary config file)
+		envs3Cfg := &format.Envs3Config{
+			Project:              projectName,
+			Endpoint:             endpoint,
+			Bucket:               bucket,
+			Region:               region,
+			DefaultEnv:           envs[0],
+			AccessKeyID:          readKeyID,
+			SecretAccessKey:      readSecretKey,
 			WriteAccessKeyID:     writeKeyID,
 			WriteSecretAccessKey: writeSecretKey,
-		}); err != nil {
-			return fmt.Errorf("save credentials: %w", err)
 		}
+		if err := format.SaveEnvs3File(".", envs3Cfg); err != nil {
+			return fmt.Errorf("save .env.envs3: %w", err)
+		}
+		fmt.Println("✓ .env.envs3 created (do NOT commit — share securely with your team)")
 
 		// Save initial local state
 		state := &format.LocalState{
@@ -184,9 +171,10 @@ var initCmd = &cobra.Command{
 
 		fmt.Println()
 		fmt.Println("Next steps:")
-		fmt.Println("  1. Commit .envs3.json to your repository")
-		fmt.Println("  2. Share the read-only S3 credentials with your team")
-		fmt.Println("  3. Run 'envs3 pull' to sync")
+		fmt.Println("  1. Add .env.envs3 to .gitignore (if not already)")
+		fmt.Println("  2. Share .env.envs3 with your team via a secure channel")
+		fmt.Println("  3. Optionally commit .envs3.json for non-secret project metadata")
+		fmt.Println("  4. Run 'envs3 pull' to sync")
 
 		return nil
 	},

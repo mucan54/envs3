@@ -142,8 +142,8 @@ var pullCmd = &cobra.Command{
 		}
 
 		// Post-pull hook
-		if !pullNoHook && cfg.Hooks != nil && cfg.Hooks.PostPull != "" {
-			fmt.Printf("Running post_pull hook: %s\n", cfg.Hooks.PostPull)
+		if !pullNoHook && cfg.HookPostPull != "" {
+			fmt.Printf("Running post_pull hook: %s\n", cfg.HookPostPull)
 			// Hook execution would go here
 		}
 

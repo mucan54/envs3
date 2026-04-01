@@ -60,7 +60,7 @@ var setCmd = &cobra.Command{
 		}
 
 		// Confirmation
-		isDefault := (env == cfg.Defaults.Environment)
+		isDefault := (env == cfg.DefaultEnv)
 		if !setYes || (!isDefault && !setForce) {
 			fmt.Printf("  Target: %s\n\n", strings.ToUpper(env))
 			fmt.Println("  Changes:")

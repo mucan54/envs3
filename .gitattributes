@@ -1,0 +1,2 @@
+# JS shim needs LF line endings for shebang to work on all platforms
+npm/envs3/bin/envs3 text eol=lf

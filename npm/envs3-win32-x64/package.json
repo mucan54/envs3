@@ -1,0 +1,16 @@
+{
+  "name": "@mucan54/envs3-win32-x64",
+  "version": "0.0.0",
+  "description": "envs3 binary for Windows x64",
+  "os": ["win32"],
+  "cpu": ["x64"],
+  "bin": {
+    "envs3": "bin/envs3.exe"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mucan54/envs3"
+  },
+  "preferUnplugged": true
+}

@@ -1,6 +1,7 @@
 package format
 
 // ProjectConfig represents .envs3.json committed to the repository.
+// This file contains NO credentials — only project metadata, defaults, and hooks.
 type ProjectConfig struct {
 	SchemaVersion int            `json:"schema_version"`
 	Project       string         `json:"project"`
@@ -9,14 +10,12 @@ type ProjectConfig struct {
 	Hooks         *HooksConfig   `json:"hooks,omitempty"`
 }
 
-// StorageConfig holds S3 connection details.
+// StorageConfig holds non-sensitive storage metadata.
+// Credentials are stored separately in .env.envs3 (gitignored).
 type StorageConfig struct {
-	Type               string `json:"type"`
-	Endpoint           string `json:"endpoint"`
-	Bucket             string `json:"bucket"`
-	Region             string `json:"region"`
-	ReadAccessKeyID    string `json:"read_access_key_id"`
-	ReadSecretAccessKey string `json:"read_secret_access_key"`
+	Type   string `json:"type"`
+	Bucket string `json:"bucket"`
+	Region string `json:"region,omitempty"`
 }
 
 // DefaultsConfig holds default settings.
@@ -44,6 +43,8 @@ type EnvState struct {
 }
 
 // AdminCredentials represents ~/.envs3/credentials/<project>.json.
+// Deprecated: use .env.envs3 with ENVS3_WRITE_ACCESS_KEY_ID instead.
+// Kept for backward compatibility.
 type AdminCredentials struct {
 	WriteAccessKeyID     string `json:"write_access_key_id"`
 	WriteSecretAccessKey string `json:"write_secret_access_key"`
