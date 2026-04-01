@@ -1,0 +1,151 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+            npm_pkg: envs3-linux-x64
+            binary: envs3
+          - goos: linux
+            goarch: arm64
+            npm_pkg: envs3-linux-arm64
+            binary: envs3
+          - goos: darwin
+            goarch: amd64
+            npm_pkg: envs3-darwin-x64
+            binary: envs3
+          - goos: darwin
+            goarch: arm64
+            npm_pkg: envs3-darwin-arm64
+            binary: envs3
+          - goos: windows
+            goarch: amd64
+            npm_pkg: envs3-win32-x64
+            binary: envs3.exe
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.23'
+
+      - name: Build binary
+        env:
+          CGO_ENABLED: 0
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          go build -ldflags="-s -w -X main.version=${VERSION}" \
+            -o npm/${{ matrix.npm_pkg }}/bin/${{ matrix.binary }} \
+            ./cmd/envs3
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.npm_pkg }}
+          path: npm/${{ matrix.npm_pkg }}/
+
+  publish-npm:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: npm/
+
+      - name: Set version
+        run: |
+          VERSION=${GITHUB_REF_NAME#v}
+          echo "VERSION=$VERSION" >> $GITHUB_ENV
+
+          # Update versions in all package.json files
+          for pkg_dir in npm/envs3 npm/envs3-*/; do
+            if [ -f "$pkg_dir/package.json" ]; then
+              node -e "
+                const fs = require('fs');
+                const path = '${pkg_dir}/package.json';
+                const pkg = JSON.parse(fs.readFileSync(path, 'utf8'));
+                pkg.version = '${VERSION}';
+                if (pkg.optionalDependencies) {
+                  for (const key of Object.keys(pkg.optionalDependencies)) {
+                    pkg.optionalDependencies[key] = '${VERSION}';
+                  }
+                }
+                fs.writeFileSync(path, JSON.stringify(pkg, null, 2) + '\n');
+              "
+            fi
+          done
+
+      - name: Make binaries executable
+        run: |
+          chmod +x npm/envs3-linux-x64/bin/envs3 || true
+          chmod +x npm/envs3-linux-arm64/bin/envs3 || true
+          chmod +x npm/envs3-darwin-x64/bin/envs3 || true
+          chmod +x npm/envs3-darwin-arm64/bin/envs3 || true
+          chmod +x npm/envs3/bin/envs3 || true
+
+      - name: Publish platform packages
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg_dir in npm/envs3-*/; do
+            echo "Publishing $(basename $pkg_dir)..."
+            (cd "$pkg_dir" && npm publish --access public) || true
+          done
+
+      - name: Publish main package
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          cd npm/envs3
+          npm publish --access public
+
+  github-release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release/
+          cp artifacts/envs3-linux-x64/bin/envs3 release/envs3-linux-amd64
+          cp artifacts/envs3-linux-arm64/bin/envs3 release/envs3-linux-arm64
+          cp artifacts/envs3-darwin-x64/bin/envs3 release/envs3-darwin-amd64
+          cp artifacts/envs3-darwin-arm64/bin/envs3 release/envs3-darwin-arm64
+          cp artifacts/envs3-win32-x64/bin/envs3.exe release/envs3-windows-amd64.exe
+          chmod +x release/envs3-*
+          cd release && sha256sum * > checksums.txt
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/*
+          generate_release_notes: true
