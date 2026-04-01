@@ -483,39 +483,13 @@ Pulls start with a lightweight HEAD request (~50ms) to check if the ETag has cha
 
 ## Configuration Files
 
-### `.env.envs3` (primary config — gitignored)
+envs3 supports three configuration modes, selected during `envs3 init`:
 
-This is the main configuration file. It uses the familiar `.env` format and contains everything envs3 needs:
+### Mode 1: Hybrid (default, recommended)
 
-```bash
-# envs3 project configuration
-# This file is gitignored. Share it with your team via a secure channel.
+Two files — project config committed, credentials gitignored:
 
-# Project
-ENVS3_PROJECT=myproject
-
-# Storage
-ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
-ENVS3_BUCKET=myproject-envs
-ENVS3_REGION=auto
-
-ENVS3_DEFAULT_ENV=local
-
-# Read credentials (for all team members)
-ENVS3_ACCESS_KEY_ID=readonly_abc123
-ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
-
-# Write credentials (admin only — uncomment if you have read-write access)
-# ENVS3_WRITE_ACCESS_KEY_ID=readwrite_def456
-# ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
-
-# ENVS3_HOOK_POST_PULL=php artisan config:clear
-```
-
-### `.envs3.json` (optional — can be committed)
-
-If your team wants to commit non-secret project metadata to git, you can create an optional `.envs3.json`:
-
+**`.envs3.json`** (committed to git):
 ```json
 {
   "schema_version": 1,
@@ -531,14 +505,69 @@ If your team wants to commit non-secret project metadata to git, you can create 
 }
 ```
 
-This file contains **no credentials**. When both files exist, `.env.envs3` values take priority. This is useful when you want new developers to see it's an envs3 project from the repo alone.
+**`.env.envs3`** (gitignored, shared securely with team):
+```bash
+# envs3 storage credentials
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
+ENVS3_ACCESS_KEY_ID=readonly_abc123
+ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
+
+# Write credentials (admin only — uncomment if you have read-write access)
+# ENVS3_WRITE_ACCESS_KEY_ID=readwrite_def456
+# ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
+```
+
+New team members clone the repo (get `.envs3.json` with project config), then receive `.env.envs3` from the admin (just 3 lines of credentials).
+
+### Mode 2: Full .env
+
+Everything in a single `.env.envs3` file. Nothing committed to git.
+
+```bash
+# envs3 configuration (full mode)
+ENVS3_PROJECT=myproject
+ENVS3_BUCKET=myproject-envs
+ENVS3_REGION=auto
+ENVS3_DEFAULT_ENV=local
+
+# Storage credentials
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
+ENVS3_ACCESS_KEY_ID=readonly_abc123
+ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
+
+# Write credentials (admin only)
+# ENVS3_WRITE_ACCESS_KEY_ID=readwrite_def456
+# ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
+```
+
+### Mode 3: Full JSON
+
+Everything in a single `.envs3.json` file. You decide whether to commit it.
+
+```json
+{
+  "schema_version": 1,
+  "project": "myproject",
+  "storage": {
+    "type": "s3",
+    "endpoint": "https://xxx.r2.cloudflarestorage.com",
+    "bucket": "myproject-envs",
+    "region": "auto",
+    "read_access_key_id": "readonly_abc123",
+    "read_secret_access_key": "readonly_secret_xyz"
+  },
+  "defaults": {
+    "environment": "local"
+  }
+}
+```
 
 ### Priority Order
 
-Configuration is resolved in this order (later overrides earlier):
+When both files exist, values are merged (later overrides earlier):
 
-1. `.envs3.json` (committed, optional)
-2. `.env.envs3` (gitignored, primary)
+1. `.envs3.json`
+2. `.env.envs3`
 3. Environment variables (highest priority)
 
 ### .gitignore

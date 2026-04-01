@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/mucan54/envs3/internal/config"
 	"github.com/mucan54/envs3/internal/format"
 	"github.com/mucan54/envs3/internal/storage"
 	"github.com/spf13/cobra"
@@ -84,20 +85,82 @@ var connectCmd = &cobra.Command{
 			defaultEnv = projectFile.Environments[0]
 		}
 
-		// Write .env.envs3
-		envs3Cfg := &format.Envs3Config{
-			Project:         project,
-			Endpoint:        endpoint,
-			Bucket:          bucket,
-			Region:          region,
-			DefaultEnv:      defaultEnv,
-			AccessKeyID:     accessKeyID,
-			SecretAccessKey: secretKey,
+		// Configuration mode
+		fmt.Println()
+		fmt.Println("Configuration mode:")
+		fmt.Println("  1. Hybrid — .envs3.json (commit) + .env.envs3 (secrets only) [default]")
+		fmt.Println("  2. Full .env — everything in .env.envs3 (nothing committed)")
+		fmt.Println("  3. Full JSON — everything in .envs3.json")
+		modeChoice := prompt("Select (1-3) [1]: ")
+		if modeChoice == "" {
+			modeChoice = "1"
 		}
-		if err := format.SaveEnvs3File(".", envs3Cfg); err != nil {
-			return err
+
+		switch modeChoice {
+		case "2": // Full .env
+			envCfg := &format.Envs3Config{
+				Project:         project,
+				Endpoint:        endpoint,
+				Bucket:          bucket,
+				Region:          region,
+				DefaultEnv:      defaultEnv,
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+			}
+			if err := format.SaveEnvs3File(".", envCfg, false); err != nil {
+				return err
+			}
+			fmt.Println("\n✓ .env.envs3 created (do NOT commit)")
+
+		case "3": // Full JSON
+			cfg := &format.ProjectConfig{
+				SchemaVersion: 1,
+				Project:       project,
+				Storage: format.StorageConfig{
+					Type:                "s3",
+					Endpoint:            endpoint,
+					Bucket:              bucket,
+					Region:              region,
+					ReadAccessKeyID:     accessKeyID,
+					ReadSecretAccessKey: secretKey,
+				},
+				Defaults: format.DefaultsConfig{
+					Environment: defaultEnv,
+				},
+			}
+			if err := config.SaveProjectConfig(".", cfg); err != nil {
+				return err
+			}
+			fmt.Println("\n✓ .envs3.json created")
+
+		default: // Hybrid
+			cfg := &format.ProjectConfig{
+				SchemaVersion: 1,
+				Project:       project,
+				Storage: format.StorageConfig{
+					Type:   "s3",
+					Bucket: bucket,
+					Region: region,
+				},
+				Defaults: format.DefaultsConfig{
+					Environment: defaultEnv,
+				},
+			}
+			if err := config.SaveProjectConfig(".", cfg); err != nil {
+				return err
+			}
+			fmt.Println("\n✓ .envs3.json created (commit this file)")
+
+			envCfg := &format.Envs3Config{
+				Endpoint:        endpoint,
+				AccessKeyID:     accessKeyID,
+				SecretAccessKey: secretKey,
+			}
+			if err := format.SaveEnvs3File(".", envCfg, true); err != nil {
+				return err
+			}
+			fmt.Println("✓ .env.envs3 created (do NOT commit)")
 		}
-		fmt.Println("\n✓ .env.envs3 created (do NOT commit)")
 
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Run 'envs3 auth setup' to generate your keypair")
