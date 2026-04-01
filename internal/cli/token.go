@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/mucan54/envs3/internal/config"
 	"github.com/mucan54/envs3/internal/storage"
 	"github.com/spf13/cobra"
 )
@@ -61,17 +60,16 @@ var tokenCreateCmd = &cobra.Command{
 
 		email := getUserEmail()
 
-		// Load admin credentials for the S3 config to embed in token
-		adminCreds, _ := config.LoadAdminCredentials(cfg.Project)
+		// Build S3 config for the token
 		s3Cfg := storage.S3Config{
-			Endpoint:        cfg.Storage.Endpoint,
-			Bucket:          cfg.Storage.Bucket,
-			AccessKeyID:     cfg.Storage.ReadAccessKeyID,
-			SecretAccessKey: cfg.Storage.ReadSecretAccessKey,
+			Endpoint:        cfg.Endpoint,
+			Bucket:          cfg.Bucket,
+			AccessKeyID:     cfg.AccessKeyID,
+			SecretAccessKey: cfg.SecretAccessKey,
 		}
-		if perm == "rw" && adminCreds != nil {
-			s3Cfg.AccessKeyID = adminCreds.WriteAccessKeyID
-			s3Cfg.SecretAccessKey = adminCreds.WriteSecretAccessKey
+		if perm == "rw" && cfg.HasWriteCredentials() {
+			s3Cfg.AccessKeyID = cfg.WriteAccessKeyID
+			s3Cfg.SecretAccessKey = cfg.WriteSecretAccessKey
 		}
 
 		token, err := eng.CreateToken(ctx(), tokenCreateName, tokenCreateEnv, perm, email, ttl, s3Cfg, priv, pub)

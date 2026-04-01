@@ -29,16 +29,18 @@ This walks you through an interactive setup:
 - Name your project and environments
 - Optionally import an existing `.env` file
 
-The command generates your keypair, creates the project in your bucket, and writes `.envs3.json` to your project root.
+The command generates your keypair, creates the project in your bucket, and writes `.env.envs3` — a single config file that holds everything envs3 needs.
 
-### 2. Commit the config
+### 2. Share with your team
+
+`.env.envs3` contains S3 credentials and should **not** be committed to git. Share it with your team via a secure channel (password manager, encrypted message, etc.). Each developer places it in the project root.
 
 ```bash
-git add .envs3.json
-git commit -m "Add envs3 config"
+# .env.envs3 is auto-gitignored
+# Share it securely, not via git
 ```
 
-`.envs3.json` contains read-only S3 credentials (access key ID + secret) along with the endpoint, bucket name, and region. This is safe to commit because those credentials only allow downloading files from the bucket — and everything stored there is encrypted with AES-256-GCM. Without a user's private key to unwrap the DEK, the downloaded data is undecipherable. The **read-write** S3 credentials (held by admins only) are stored locally at `~/.envs3/credentials/` and are never committed.
+Optionally, you can also create a `.envs3.json` with non-secret project metadata (project name, bucket, defaults) and commit that. envs3 will merge both files — `.env.envs3` always takes priority.
 
 ### 3. Daily workflow
 
@@ -55,11 +57,11 @@ envs3 set DB_HOST=newhost.com --env=production
 
 ### 4. Onboard a team member
 
-**New member** runs:
+**New member** receives `.env.envs3` from admin, then:
 ```bash
-git clone <repo>              # Gets .envs3.json
-envs3 auth setup              # Generates keypair
-envs3 pubkey --output my.pub  # Exports public key
+cp ~/Downloads/.env.envs3 .   # Place in project root
+envs3 auth setup              # Generate keypair
+envs3 pubkey --output my.pub  # Export public key
 # Send my.pub to admin
 ```
 
@@ -182,10 +184,18 @@ These commands operate on remote state **without touching your local `.env`**:
 | Variable | Description |
 |----------|-------------|
 | `ENVS3_TOKEN` | Service token for CI/CD (overrides keypair auth) |
-| `ENVS3_READ_KEY_ID` | Override read-only S3 access key ID (for public repos) |
-| `ENVS3_READ_SECRET_KEY` | Override read-only S3 secret key (for public repos) |
-| `ENVS3_WRITE_KEY_ID` | Override write S3 access key ID |
-| `ENVS3_WRITE_SECRET_KEY` | Override write S3 secret key |
+| `ENVS3_PROJECT` | Project name |
+| `ENVS3_ENDPOINT` | S3 endpoint URL |
+| `ENVS3_BUCKET` | S3 bucket name |
+| `ENVS3_REGION` | S3 region |
+| `ENVS3_DEFAULT_ENV` | Default environment |
+| `ENVS3_ACCESS_KEY_ID` | Read-only S3 access key ID |
+| `ENVS3_SECRET_ACCESS_KEY` | Read-only S3 secret key |
+| `ENVS3_WRITE_ACCESS_KEY_ID` | Read-write S3 access key ID (admin) |
+| `ENVS3_WRITE_SECRET_ACCESS_KEY` | Read-write S3 secret key (admin) |
+| `ENVS3_HOOK_POST_PULL` | Shell command to run after pull |
+
+All environment variables override values from `.env.envs3` and `.envs3.json`.
 
 ## Command Details
 
@@ -347,13 +357,14 @@ s3://<bucket>/
 ### Local Files
 
 ```
+.env.envs3                         # Project config + credentials (gitignored)
+.envs3.json                        # Optional non-secret metadata (committable)
+
 ~/.envs3/
 ├── keys/
-│   └── <project>.key          # X25519 private key (32 bytes, mode 0600)
-├── state/
-│   └── <project>.json         # ETag cache, active environment
-└── credentials/
-    └── <project>.json         # Admin write S3 credentials (mode 0600)
+│   └── <project>.key              # X25519 private key (32 bytes, mode 0600)
+└── state/
+    └── <project>.json             # ETag cache, active environment
 ```
 
 ### Code Structure
@@ -458,30 +469,40 @@ Pulls start with a lightweight HEAD request (~50ms) to check if the ETag has cha
 4. When a member leaves, DEK rotation is automatic, but also rotate the actual credentials (database passwords, API keys) at the service level
 5. Keep read-write S3 access to as few people as possible (ideally 1-2 admins)
 
-## .gitignore
+## Configuration Files
 
-Add these to your `.gitignore`:
+### `.env.envs3` (primary config — gitignored)
 
+This is the main configuration file. It uses the familiar `.env` format and contains everything envs3 needs:
+
+```bash
+# envs3 project configuration
+# This file is gitignored. Share it with your team via a secure channel.
+
+# Project
+ENVS3_PROJECT=myproject
+
+# Storage
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
+ENVS3_BUCKET=myproject-envs
+ENVS3_REGION=auto
+
+ENVS3_DEFAULT_ENV=local
+
+# Read credentials (for all team members)
+ENVS3_ACCESS_KEY_ID=readonly_abc123
+ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
+
+# Write credentials (admin only — uncomment if you have read-write access)
+# ENVS3_WRITE_ACCESS_KEY_ID=readwrite_def456
+# ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
+
+# ENVS3_HOOK_POST_PULL=php artisan config:clear
 ```
-.env
-.env.previous
-```
 
-**Do NOT** gitignore `.envs3.json` — it's the project config and is safe to commit for private repos.
+### `.envs3.json` (optional — can be committed)
 
-### Public Repositories
-
-For **public repos**, committing `.envs3.json` means anyone can see your read-only S3 credentials. While they can only download encrypted data they can't decrypt, this has downsides:
-
-- Attackers get ciphertext to attempt offline attacks against
-- Key names are plaintext — they reveal which services you use
-- Unauthorized S3 reads may increase your storage costs
-- If a cryptographic vulnerability is ever discovered, already-exposed ciphertext is at risk
-
-**Recommended approach for public repos:** use environment variables instead of committing credentials.
-
-1. Add `.envs3.json` to `.gitignore`
-2. Commit a template without credentials:
+If your team wants to commit non-secret project metadata to git, you can create an optional `.envs3.json`:
 
 ```json
 {
@@ -489,11 +510,8 @@ For **public repos**, committing `.envs3.json` means anyone can see your read-on
   "project": "myproject",
   "storage": {
     "type": "s3",
-    "endpoint": "https://your-endpoint.com",
-    "bucket": "your-bucket",
-    "region": "auto",
-    "read_access_key_id": "",
-    "read_secret_access_key": ""
+    "bucket": "myproject-envs",
+    "region": "auto"
   },
   "defaults": {
     "environment": "local"
@@ -501,16 +519,25 @@ For **public repos**, committing `.envs3.json` means anyone can see your read-on
 }
 ```
 
-3. Each developer sets the credentials via environment variables:
+This file contains **no credentials**. When both files exist, `.env.envs3` values take priority. This is useful when you want new developers to see it's an envs3 project from the repo alone.
 
-```bash
-export ENVS3_READ_KEY_ID="your_read_key"
-export ENVS3_READ_SECRET_KEY="your_read_secret"
+### Priority Order
+
+Configuration is resolved in this order (later overrides earlier):
+
+1. `.envs3.json` (committed, optional)
+2. `.env.envs3` (gitignored, primary)
+3. Environment variables (highest priority)
+
+### .gitignore
+
+These should be in your `.gitignore`:
+
 ```
-
-These override the empty values in `.envs3.json`. Share them with your team once via a secure channel.
-
-For most teams using **private repos**, committing `.envs3.json` is perfectly fine — the read-only credentials can only fetch ciphertext that requires a registered private key to decrypt.
+.env
+.env.previous
+.env.envs3
+```
 
 ## Comparison
 

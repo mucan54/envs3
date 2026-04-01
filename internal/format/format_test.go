@@ -252,3 +252,108 @@ func TestKeyringJSONRoundTrip(t *testing.T) {
 		t.Errorf("wrapped: got %d, want 1", len(decoded.Wrapped))
 	}
 }
+
+func TestEnvs3FileRoundTrip(t *testing.T) {
+	cfg := &Envs3Config{
+		Project:              "myproject",
+		Endpoint:             "https://xxx.r2.cloudflarestorage.com",
+		Bucket:               "myproject-envs",
+		Region:               "auto",
+		DefaultEnv:           "local",
+		AccessKeyID:          "readonly_abc",
+		SecretAccessKey:      "readonly_secret",
+		WriteAccessKeyID:     "readwrite_def",
+		WriteSecretAccessKey: "readwrite_secret",
+		HookPostPull:         "make restart",
+	}
+
+	var buf bytes.Buffer
+	if err := WriteEnvs3File(&buf, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	parsed, err := ParseEnvs3File(&buf)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if parsed.Project != "myproject" {
+		t.Errorf("project: got %q", parsed.Project)
+	}
+	if parsed.Endpoint != "https://xxx.r2.cloudflarestorage.com" {
+		t.Errorf("endpoint: got %q", parsed.Endpoint)
+	}
+	if parsed.Bucket != "myproject-envs" {
+		t.Errorf("bucket: got %q", parsed.Bucket)
+	}
+	if parsed.Region != "auto" {
+		t.Errorf("region: got %q", parsed.Region)
+	}
+	if parsed.DefaultEnv != "local" {
+		t.Errorf("default_env: got %q", parsed.DefaultEnv)
+	}
+	if parsed.AccessKeyID != "readonly_abc" {
+		t.Errorf("access_key: got %q", parsed.AccessKeyID)
+	}
+	if parsed.SecretAccessKey != "readonly_secret" {
+		t.Errorf("secret_key: got %q", parsed.SecretAccessKey)
+	}
+	if parsed.WriteAccessKeyID != "readwrite_def" {
+		t.Errorf("write_key: got %q", parsed.WriteAccessKeyID)
+	}
+	if parsed.WriteSecretAccessKey != "readwrite_secret" {
+		t.Errorf("write_secret: got %q", parsed.WriteSecretAccessKey)
+	}
+	if parsed.HookPostPull != "make restart" {
+		t.Errorf("hook: got %q", parsed.HookPostPull)
+	}
+}
+
+func TestEnvs3FileReadOnly(t *testing.T) {
+	cfg := &Envs3Config{
+		Project:         "myproject",
+		Endpoint:        "https://xxx.r2.cloudflarestorage.com",
+		Bucket:          "myproject-envs",
+		AccessKeyID:     "readonly_abc",
+		SecretAccessKey: "readonly_secret",
+	}
+
+	var buf bytes.Buffer
+	WriteEnvs3File(&buf, cfg)
+
+	parsed, _ := ParseEnvs3File(&buf)
+
+	if !parsed.HasReadCredentials() {
+		t.Error("should have read credentials")
+	}
+	if parsed.HasWriteCredentials() {
+		t.Error("should NOT have write credentials")
+	}
+	if parsed.WriteAccessKeyID != "" {
+		t.Error("write key should be empty")
+	}
+}
+
+func TestEnvs3ToProjectConfig(t *testing.T) {
+	cfg := &Envs3Config{
+		Project:      "myproject",
+		Bucket:       "mybucket",
+		Region:       "us-east-1",
+		DefaultEnv:   "staging",
+		HookPostPull: "make restart",
+	}
+
+	pc := cfg.ToProjectConfig()
+	if pc.Project != "myproject" {
+		t.Errorf("project: got %q", pc.Project)
+	}
+	if pc.Storage.Bucket != "mybucket" {
+		t.Errorf("bucket: got %q", pc.Storage.Bucket)
+	}
+	if pc.Defaults.Environment != "staging" {
+		t.Errorf("default env: got %q", pc.Defaults.Environment)
+	}
+	if pc.Hooks == nil || pc.Hooks.PostPull != "make restart" {
+		t.Error("hooks not set")
+	}
+}

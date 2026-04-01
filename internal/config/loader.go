@@ -10,18 +10,24 @@ import (
 )
 
 const configFileName = ".envs3.json"
+const envFileName = ".env.envs3"
 
-// FindProjectConfig walks up from startDir looking for .envs3.json.
-func FindProjectConfig(startDir string) (string, error) {
+// FindProjectDir walks up from startDir looking for .env.envs3 or .envs3.json.
+// .env.envs3 takes priority.
+func FindProjectDir(startDir string) (string, error) {
 	dir, err := filepath.Abs(startDir)
 	if err != nil {
 		return "", err
 	}
 
 	for {
-		path := filepath.Join(dir, configFileName)
-		if _, err := os.Stat(path); err == nil {
-			return path, nil
+		// Check for .env.envs3 first
+		if _, err := os.Stat(filepath.Join(dir, envFileName)); err == nil {
+			return dir, nil
+		}
+		// Fall back to .envs3.json
+		if _, err := os.Stat(filepath.Join(dir, configFileName)); err == nil {
+			return dir, nil
 		}
 
 		parent := filepath.Dir(dir)
@@ -34,10 +40,111 @@ func FindProjectConfig(startDir string) (string, error) {
 	return "", fmt.Errorf("not an envs3 project. Run 'envs3 init' or 'envs3 connect'")
 }
 
+// FindProjectConfig walks up from startDir looking for .envs3.json.
+// Kept for backward compatibility.
+func FindProjectConfig(startDir string) (string, error) {
+	dir, err := FindProjectDir(startDir)
+	if err != nil {
+		return "", err
+	}
+	// Return .envs3.json path even if it doesn't exist (LoadProjectConfig handles that)
+	return filepath.Join(dir, configFileName), nil
+}
+
+// LoadFullConfig loads the complete envs3 configuration.
+// Priority: .env.envs3 (primary) → .envs3.json (optional overlay) → env vars (highest).
+// Returns the resolved config and the project directory.
+func LoadFullConfig(startDir string) (*format.Envs3Config, string, error) {
+	projectDir, err := FindProjectDir(startDir)
+	if err != nil {
+		return nil, "", err
+	}
+
+	cfg := &format.Envs3Config{}
+
+	// 1. Load from .envs3.json if it exists (backward compat / optional committed config)
+	jsonPath := filepath.Join(projectDir, configFileName)
+	if data, err := os.ReadFile(jsonPath); err == nil {
+		var jsonCfg format.ProjectConfig
+		if err := json.Unmarshal(data, &jsonCfg); err == nil {
+			cfg.Project = jsonCfg.Project
+			cfg.Bucket = jsonCfg.Storage.Bucket
+			cfg.Region = jsonCfg.Storage.Region
+			cfg.DefaultEnv = jsonCfg.Defaults.Environment
+			if jsonCfg.Hooks != nil {
+				cfg.HookPostPull = jsonCfg.Hooks.PostPull
+			}
+		}
+	}
+
+	// 2. Load from .env.envs3 (overrides .envs3.json values)
+	envCfg, err := format.LoadEnvs3File(projectDir)
+	if err != nil {
+		return nil, "", fmt.Errorf("read .env.envs3: %w", err)
+	}
+	if envCfg != nil {
+		if envCfg.Project != "" {
+			cfg.Project = envCfg.Project
+		}
+		if envCfg.Endpoint != "" {
+			cfg.Endpoint = envCfg.Endpoint
+		}
+		if envCfg.Bucket != "" {
+			cfg.Bucket = envCfg.Bucket
+		}
+		if envCfg.Region != "" {
+			cfg.Region = envCfg.Region
+		}
+		if envCfg.DefaultEnv != "" {
+			cfg.DefaultEnv = envCfg.DefaultEnv
+		}
+		if envCfg.AccessKeyID != "" {
+			cfg.AccessKeyID = envCfg.AccessKeyID
+		}
+		if envCfg.SecretAccessKey != "" {
+			cfg.SecretAccessKey = envCfg.SecretAccessKey
+		}
+		if envCfg.WriteAccessKeyID != "" {
+			cfg.WriteAccessKeyID = envCfg.WriteAccessKeyID
+		}
+		if envCfg.WriteSecretAccessKey != "" {
+			cfg.WriteSecretAccessKey = envCfg.WriteSecretAccessKey
+		}
+		if envCfg.HookPostPull != "" {
+			cfg.HookPostPull = envCfg.HookPostPull
+		}
+	}
+
+	// 3. Legacy: check ~/.envs3/credentials/ for write creds
+	if !cfg.HasWriteCredentials() && cfg.Project != "" {
+		legacyAdmin, _ := LoadAdminCredentials(cfg.Project)
+		if legacyAdmin != nil && legacyAdmin.WriteAccessKeyID != "" {
+			cfg.WriteAccessKeyID = legacyAdmin.WriteAccessKeyID
+			cfg.WriteSecretAccessKey = legacyAdmin.WriteSecretAccessKey
+		}
+	}
+
+	// 4. Apply environment variable overrides (highest priority)
+	cfg.ApplyEnvOverrides()
+
+	// Validate
+	if cfg.Project == "" {
+		return nil, "", fmt.Errorf("no project configured. Set ENVS3_PROJECT in .env.envs3 or create .envs3.json")
+	}
+	if !cfg.HasReadCredentials() {
+		return nil, "", fmt.Errorf("no storage credentials found. Set ENVS3_ENDPOINT, ENVS3_ACCESS_KEY_ID, ENVS3_SECRET_ACCESS_KEY in .env.envs3 or as environment variables")
+	}
+
+	return cfg, projectDir, nil
+}
+
 // LoadProjectConfig reads and parses .envs3.json.
 func LoadProjectConfig(path string) (*format.ProjectConfig, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return &format.ProjectConfig{SchemaVersion: 1}, nil
+		}
 		return nil, err
 	}
 	var cfg format.ProjectConfig
@@ -99,7 +206,6 @@ func LoadPrivateKey(project string) ([32]byte, error) {
 		return key, fmt.Errorf("private key not found at %s. Run 'envs3 auth setup'", path)
 	}
 
-	// Check permissions
 	if info.Mode().Perm()&0077 != 0 {
 		return key, fmt.Errorf("private key file has insecure permissions (%o). Run: chmod 600 %s", info.Mode().Perm(), path)
 	}
@@ -124,6 +230,7 @@ func SavePrivateKey(project string, key [32]byte) error {
 }
 
 // LoadAdminCredentials reads the admin write credentials for a project.
+// Deprecated: use .env.envs3 with ENVS3_WRITE_ACCESS_KEY_ID instead.
 func LoadAdminCredentials(project string) (*format.AdminCredentials, error) {
 	data, err := os.ReadFile(CredentialsPath(project))
 	if err != nil {

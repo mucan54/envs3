@@ -28,7 +28,7 @@ var statusCmd = &cobra.Command{
 		}
 
 		fmt.Printf("Project:      %s\n", result.Project.Name)
-		fmt.Printf("Storage:      %s (%s)\n", cfg.Storage.Type, cfg.Storage.Bucket)
+		fmt.Printf("Storage:      s3 (%s)\n", cfg.Bucket)
 		if state != nil && state.ActiveEnvironment != "" {
 			es := state.Environments[state.ActiveEnvironment]
 			fmt.Printf("Active env:   %s (v%d)\n", state.ActiveEnvironment, es.Version)

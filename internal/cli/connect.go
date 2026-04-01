@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 
-	"github.com/mucan54/envs3/internal/config"
 	"github.com/mucan54/envs3/internal/format"
 	"github.com/mucan54/envs3/internal/storage"
 	"github.com/spf13/cobra"
@@ -85,27 +84,21 @@ var connectCmd = &cobra.Command{
 			defaultEnv = projectFile.Environments[0]
 		}
 
-		cfg := &format.ProjectConfig{
-			SchemaVersion: 1,
-			Project:       project,
-			Storage: format.StorageConfig{
-				Type:                "s3",
-				Endpoint:            endpoint,
-				Bucket:              bucket,
-				Region:              region,
-				ReadAccessKeyID:     accessKeyID,
-				ReadSecretAccessKey: secretKey,
-			},
-			Defaults: format.DefaultsConfig{
-				Environment: defaultEnv,
-			},
+		// Write .env.envs3
+		envs3Cfg := &format.Envs3Config{
+			Project:         project,
+			Endpoint:        endpoint,
+			Bucket:          bucket,
+			Region:          region,
+			DefaultEnv:      defaultEnv,
+			AccessKeyID:     accessKeyID,
+			SecretAccessKey: secretKey,
 		}
-
-		if err := config.SaveProjectConfig(".", cfg); err != nil {
+		if err := format.SaveEnvs3File(".", envs3Cfg); err != nil {
 			return err
 		}
+		fmt.Println("\n✓ .env.envs3 created (do NOT commit)")
 
-		fmt.Println("\n✓ .envs3.json created")
 		fmt.Println("\nNext steps:")
 		fmt.Println("  1. Run 'envs3 auth setup' to generate your keypair")
 		fmt.Println("  2. Send your public key to the admin")

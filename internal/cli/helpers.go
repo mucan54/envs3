@@ -14,14 +14,10 @@ import (
 	"github.com/mucan54/envs3/internal/storage"
 )
 
-// loadContext loads project config, credentials, and creates an engine.
-func loadContext() (*engine.Engine, *format.ProjectConfig, [32]byte, [32]byte, error) {
-	cfgPath, err := config.FindProjectConfig(getProjectDir())
-	if err != nil {
-		return nil, nil, [32]byte{}, [32]byte{}, err
-	}
-
-	cfg, err := config.LoadProjectConfig(cfgPath)
+// loadContext loads the full config from .env.envs3 (+ optional .envs3.json)
+// and creates an engine.
+func loadContext() (*engine.Engine, *format.Envs3Config, [32]byte, [32]byte, error) {
+	cfg, _, err := config.LoadFullConfig(getProjectDir())
 	if err != nil {
 		return nil, nil, [32]byte{}, [32]byte{}, err
 	}
@@ -36,37 +32,18 @@ func loadContext() (*engine.Engine, *format.ProjectConfig, [32]byte, [32]byte, e
 		return nil, nil, [32]byte{}, [32]byte{}, err
 	}
 
-	// Determine S3 credentials (write creds if available, else read-only)
-	accessKey := cfg.Storage.ReadAccessKeyID
-	secretKey := cfg.Storage.ReadSecretAccessKey
-
-	// Allow read credentials via env vars (useful for public repos where
-	// .envs3.json is committed without credentials)
-	if v := os.Getenv("ENVS3_READ_KEY_ID"); v != "" {
-		accessKey = v
-	}
-	if v := os.Getenv("ENVS3_READ_SECRET_KEY"); v != "" {
-		secretKey = v
-	}
-
-	adminCreds, _ := config.LoadAdminCredentials(cfg.Project)
-	if adminCreds != nil && adminCreds.WriteAccessKeyID != "" {
-		accessKey = adminCreds.WriteAccessKeyID
-		secretKey = adminCreds.WriteSecretAccessKey
-	}
-
-	// Write credential env var overrides (take highest priority)
-	if v := os.Getenv("ENVS3_WRITE_KEY_ID"); v != "" {
-		accessKey = v
-	}
-	if v := os.Getenv("ENVS3_WRITE_SECRET_KEY"); v != "" {
-		secretKey = v
+	// Use write credentials if available, otherwise read-only
+	accessKey := cfg.AccessKeyID
+	secretKey := cfg.SecretAccessKey
+	if cfg.HasWriteCredentials() {
+		accessKey = cfg.WriteAccessKeyID
+		secretKey = cfg.WriteSecretAccessKey
 	}
 
 	store := storage.NewS3Store(storage.S3Config{
-		Endpoint:        cfg.Storage.Endpoint,
-		Region:          cfg.Storage.Region,
-		Bucket:          cfg.Storage.Bucket,
+		Endpoint:        cfg.Endpoint,
+		Region:          cfg.Region,
+		Bucket:          cfg.Bucket,
 		AccessKeyID:     accessKey,
 		SecretAccessKey: secretKey,
 	})
@@ -76,24 +53,20 @@ func loadContext() (*engine.Engine, *format.ProjectConfig, [32]byte, [32]byte, e
 }
 
 // loadWriteContext loads context and verifies write credentials are available.
-func loadWriteContext() (*engine.Engine, *format.ProjectConfig, [32]byte, [32]byte, error) {
+func loadWriteContext() (*engine.Engine, *format.Envs3Config, [32]byte, [32]byte, error) {
 	eng, cfg, priv, pub, err := loadContext()
 	if err != nil {
 		return nil, nil, [32]byte{}, [32]byte{}, err
 	}
 
-	adminCreds, _ := config.LoadAdminCredentials(cfg.Project)
-	hasWriteKey := (adminCreds != nil && adminCreds.WriteAccessKeyID != "") ||
-		os.Getenv("ENVS3_WRITE_KEY_ID") != ""
-
-	if !hasWriteKey {
-		return nil, nil, [32]byte{}, [32]byte{}, fmt.Errorf("read-only access. This operation requires a read-write S3 key. Contact your admin")
+	if !cfg.HasWriteCredentials() {
+		return nil, nil, [32]byte{}, [32]byte{}, fmt.Errorf("read-only access. This operation requires read-write S3 credentials.\n\n  Add ENVS3_WRITE_ACCESS_KEY_ID and ENVS3_WRITE_SECRET_ACCESS_KEY\n  to your .env.envs3 file, or contact your admin")
 	}
 
 	return eng, cfg, priv, pub, nil
 }
 
-func resolveEnv(cfg *format.ProjectConfig, envArg string) string {
+func resolveEnv(cfg *format.Envs3Config, envArg string) string {
 	if envArg != "" {
 		return envArg
 	}
@@ -101,7 +74,7 @@ func resolveEnv(cfg *format.ProjectConfig, envArg string) string {
 	if err == nil && state.ActiveEnvironment != "" {
 		return state.ActiveEnvironment
 	}
-	return cfg.Defaults.Environment
+	return cfg.DefaultEnv
 }
 
 func ctx() context.Context {
@@ -124,7 +97,5 @@ func getUserEmail() string {
 	if email := os.Getenv("EMAIL"); email != "" {
 		return email
 	}
-	// Try git config
-	// Simple fallback
 	return prompt("Email: ")
 }
