@@ -38,7 +38,7 @@ git add .envs3.json
 git commit -m "Add envs3 config"
 ```
 
-`.envs3.json` is safe to commit — it only contains read-only S3 credentials. The encrypted data in your bucket is undecipherable without a user's private key.
+`.envs3.json` contains read-only S3 credentials (access key ID + secret) along with the endpoint, bucket name, and region. This is safe to commit because those credentials only allow downloading files from the bucket — and everything stored there is encrypted with AES-256-GCM. Without a user's private key to unwrap the DEK, the downloaded data is undecipherable. The **read-write** S3 credentials (held by admins only) are stored locally at `~/.envs3/credentials/` and are never committed.
 
 ### 3. Daily workflow
 
