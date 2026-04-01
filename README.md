@@ -182,6 +182,8 @@ These commands operate on remote state **without touching your local `.env`**:
 | Variable | Description |
 |----------|-------------|
 | `ENVS3_TOKEN` | Service token for CI/CD (overrides keypair auth) |
+| `ENVS3_READ_KEY_ID` | Override read-only S3 access key ID (for public repos) |
+| `ENVS3_READ_SECRET_KEY` | Override read-only S3 secret key (for public repos) |
 | `ENVS3_WRITE_KEY_ID` | Override write S3 access key ID |
 | `ENVS3_WRITE_SECRET_KEY` | Override write S3 secret key |
 
@@ -465,7 +467,50 @@ Add these to your `.gitignore`:
 .env.previous
 ```
 
-**Do NOT** gitignore `.envs3.json` — it's the project config and is safe to commit.
+**Do NOT** gitignore `.envs3.json` — it's the project config and is safe to commit for private repos.
+
+### Public Repositories
+
+For **public repos**, committing `.envs3.json` means anyone can see your read-only S3 credentials. While they can only download encrypted data they can't decrypt, this has downsides:
+
+- Attackers get ciphertext to attempt offline attacks against
+- Key names are plaintext — they reveal which services you use
+- Unauthorized S3 reads may increase your storage costs
+- If a cryptographic vulnerability is ever discovered, already-exposed ciphertext is at risk
+
+**Recommended approach for public repos:** use environment variables instead of committing credentials.
+
+1. Add `.envs3.json` to `.gitignore`
+2. Commit a template without credentials:
+
+```json
+{
+  "schema_version": 1,
+  "project": "myproject",
+  "storage": {
+    "type": "s3",
+    "endpoint": "https://your-endpoint.com",
+    "bucket": "your-bucket",
+    "region": "auto",
+    "read_access_key_id": "",
+    "read_secret_access_key": ""
+  },
+  "defaults": {
+    "environment": "local"
+  }
+}
+```
+
+3. Each developer sets the credentials via environment variables:
+
+```bash
+export ENVS3_READ_KEY_ID="your_read_key"
+export ENVS3_READ_SECRET_KEY="your_read_secret"
+```
+
+These override the empty values in `.envs3.json`. Share them with your team once via a secure channel.
+
+For most teams using **private repos**, committing `.envs3.json` is perfectly fine — the read-only credentials can only fetch ciphertext that requires a registered private key to decrypt.
 
 ## Comparison
 

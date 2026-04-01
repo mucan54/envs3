@@ -40,13 +40,22 @@ func loadContext() (*engine.Engine, *format.ProjectConfig, [32]byte, [32]byte, e
 	accessKey := cfg.Storage.ReadAccessKeyID
 	secretKey := cfg.Storage.ReadSecretAccessKey
 
+	// Allow read credentials via env vars (useful for public repos where
+	// .envs3.json is committed without credentials)
+	if v := os.Getenv("ENVS3_READ_KEY_ID"); v != "" {
+		accessKey = v
+	}
+	if v := os.Getenv("ENVS3_READ_SECRET_KEY"); v != "" {
+		secretKey = v
+	}
+
 	adminCreds, _ := config.LoadAdminCredentials(cfg.Project)
 	if adminCreds != nil && adminCreds.WriteAccessKeyID != "" {
 		accessKey = adminCreds.WriteAccessKeyID
 		secretKey = adminCreds.WriteSecretAccessKey
 	}
 
-	// Check for env var overrides
+	// Write credential env var overrides (take highest priority)
 	if v := os.Getenv("ENVS3_WRITE_KEY_ID"); v != "" {
 		accessKey = v
 	}
