@@ -17,30 +17,29 @@ envs3 provides:
 
 ## Quick Start
 
-### 1. Initialize a project (admin)
+### 1. Set up (admin or team member)
 
 ```bash
 envs3 init
 ```
 
-This walks you through an interactive setup:
-- Choose your storage backend (R2, S3, MinIO, etc.)
-- Enter your S3 credentials (read-write for admin, read-only for team)
-- Name your project and environments
-- Optionally import an existing `.env` file
+One command handles everything. It will:
+- Ask for your S3 credentials (endpoint, access key, secret key, bucket)
+- Connect to the bucket and discover existing projects
+- Let you **pick an existing project** to join, or **create a new one**
 
-The command generates your keypair, creates the project in your bucket, and writes `.env.envs3` — a single config file that holds everything envs3 needs.
+If creating a new project, it also asks for project name, environments, and optionally imports your existing `.env` file.
 
-### 2. Share with your team
+The command generates your keypair and writes the config files (`.envs3.json` + `.env.envs3`).
 
-`.env.envs3` contains S3 credentials and should **not** be committed to git. Share it with your team via a secure channel (password manager, encrypted message, etc.). Each developer places it in the project root.
+### 2. Share credentials with your team
 
-```bash
-# .env.envs3 is auto-gitignored
-# Share it securely, not via git
-```
+In **hybrid mode** (default), `envs3 init` creates two files:
 
-Optionally, you can also create a `.envs3.json` with non-secret project metadata (project name, bucket, defaults) and commit that. envs3 will merge both files — `.env.envs3` always takes priority.
+- **`.envs3.json`** — project metadata (commit this)
+- **`.env.envs3`** — S3 credentials only (share securely, do NOT commit)
+
+New team members clone the repo (get `.envs3.json`), then run `envs3 init` themselves — they enter the S3 credentials, select the existing project from the list, and they're set up.
 
 ### 3. Daily workflow
 
@@ -57,10 +56,9 @@ envs3 set DB_HOST=newhost.com --env=production
 
 ### 4. Onboard a team member
 
-**New member** receives `.env.envs3` from admin, then:
+**New member** runs:
 ```bash
-cp ~/Downloads/.env.envs3 .   # Place in project root
-envs3 auth setup              # Generate keypair
+envs3 init                    # Enter S3 credentials, pick the project
 envs3 pubkey --output my.pub  # Export public key
 # Send my.pub to admin
 ```
