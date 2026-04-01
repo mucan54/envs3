@@ -1,0 +1,16 @@
+{
+  "name": "@mucan54/envs3-linux-arm64",
+  "version": "0.0.0",
+  "description": "envs3 binary for Linux arm64",
+  "os": ["linux"],
+  "cpu": ["arm64"],
+  "bin": {
+    "envs3": "bin/envs3"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/mucan54/envs3"
+  },
+  "preferUnplugged": true
+}

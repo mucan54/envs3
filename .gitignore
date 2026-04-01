@@ -1,5 +1,10 @@
 bin/
+dist/
 .env
 .env.previous
 .env.envs3
 *.key
+
+# npm platform binaries (placed at release time)
+npm/envs3-*/bin/envs3
+npm/envs3-*/bin/envs3.exe

@@ -94,6 +94,24 @@ steps:
 
 ## Installation
 
+### npm (recommended)
+
+```bash
+npm install -g @mucan54/envs3
+```
+
+Or run without installing:
+
+```bash
+npx @mucan54/envs3 pull
+```
+
+### Go install
+
+```bash
+go install github.com/mucan54/envs3/cmd/envs3@latest
+```
+
 ### From source
 
 ```bash
@@ -101,12 +119,6 @@ git clone https://github.com/mucan54/envs3.git
 cd envs3
 make build
 # Binary at ./bin/envs3
-```
-
-### Go install
-
-```bash
-go install github.com/mucan54/envs3/cmd/envs3@latest
 ```
 
 ## Commands
