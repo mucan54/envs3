@@ -17,30 +17,29 @@ envs3 provides:
 
 ## Quick Start
 
-### 1. Initialize a project (admin)
+### 1. Set up (admin or team member)
 
 ```bash
 envs3 init
 ```
 
-This walks you through an interactive setup:
-- Choose your storage backend (R2, S3, MinIO, etc.)
-- Enter your S3 credentials (read-write for admin, read-only for team)
-- Name your project and environments
-- Optionally import an existing `.env` file
+One command handles everything. It will:
+- Ask for your S3 credentials (endpoint, access key, secret key, bucket)
+- Connect to the bucket and discover existing projects
+- Let you **pick an existing project** to join, or **create a new one**
 
-The command generates your keypair, creates the project in your bucket, and writes `.env.envs3` — a single config file that holds everything envs3 needs.
+If creating a new project, it also asks for project name, environments, and optionally imports your existing `.env` file.
 
-### 2. Share with your team
+The command generates your keypair and writes the config files (`.envs3.json` + `.env.envs3`).
 
-`.env.envs3` contains S3 credentials and should **not** be committed to git. Share it with your team via a secure channel (password manager, encrypted message, etc.). Each developer places it in the project root.
+### 2. Share credentials with your team
 
-```bash
-# .env.envs3 is auto-gitignored
-# Share it securely, not via git
-```
+In **hybrid mode** (default), `envs3 init` creates two files:
 
-Optionally, you can also create a `.envs3.json` with non-secret project metadata (project name, bucket, defaults) and commit that. envs3 will merge both files — `.env.envs3` always takes priority.
+- **`.envs3.json`** — project metadata (commit this)
+- **`.env.envs3`** — S3 credentials only (share securely, do NOT commit)
+
+New team members clone the repo (get `.envs3.json`), then run `envs3 init` themselves — they enter the S3 credentials, select the existing project from the list, and they're set up.
 
 ### 3. Daily workflow
 
@@ -57,10 +56,9 @@ envs3 set DB_HOST=newhost.com --env=production
 
 ### 4. Onboard a team member
 
-**New member** receives `.env.envs3` from admin, then:
+**New member** runs:
 ```bash
-cp ~/Downloads/.env.envs3 .   # Place in project root
-envs3 auth setup              # Generate keypair
+envs3 init                    # Enter S3 credentials, pick the project
 envs3 pubkey --output my.pub  # Export public key
 # Send my.pub to admin
 ```
@@ -179,7 +177,9 @@ These commands operate on remote state **without touching your local `.env`**:
 
 | Command | Description |
 |---------|-------------|
-| `envs3 connect` | Connect to an existing project |
+| `envs3 connect` | Alias for `envs3 init` |
+| `envs3 json` | Convert `.env.envs3` config to `.envs3.json` |
+| `envs3 json --keep-s3` | Move project config to JSON, keep credentials in `.env.envs3` |
 
 ### Global Flags
 
@@ -483,55 +483,18 @@ Pulls start with a lightweight HEAD request (~50ms) to check if the ETag has cha
 
 ## Configuration Files
 
-envs3 supports three configuration modes, selected during `envs3 init`:
+### Default: `.env.envs3`
 
-### Mode 1: Hybrid (default, recommended)
-
-Two files — project config committed, credentials gitignored:
-
-**`.envs3.json`** (committed to git):
-```json
-{
-  "schema_version": 1,
-  "project": "myproject",
-  "storage": {
-    "type": "s3",
-    "bucket": "myproject-envs",
-    "region": "auto"
-  },
-  "defaults": {
-    "environment": "local"
-  }
-}
-```
-
-**`.env.envs3`** (gitignored, shared securely with team):
-```bash
-# envs3 storage credentials
-ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
-ENVS3_ACCESS_KEY_ID=readonly_abc123
-ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
-
-# Write credentials (admin only — uncomment if you have read-write access)
-# ENVS3_WRITE_ACCESS_KEY_ID=readwrite_def456
-# ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
-```
-
-New team members clone the repo (get `.envs3.json` with project config), then receive `.env.envs3` from the admin (just 3 lines of credentials).
-
-### Mode 2: Full .env
-
-Everything in a single `.env.envs3` file. Nothing committed to git.
+`envs3 init` writes everything to `.env.envs3` — a single `.env`-format file:
 
 ```bash
-# envs3 configuration (full mode)
+# envs3 configuration
 ENVS3_PROJECT=myproject
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
 ENVS3_BUCKET=myproject-envs
 ENVS3_REGION=auto
 ENVS3_DEFAULT_ENV=local
 
-# Storage credentials
-ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
 ENVS3_ACCESS_KEY_ID=readonly_abc123
 ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
 
@@ -540,10 +503,13 @@ ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
 # ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
 ```
 
-### Mode 3: Full JSON
+This file is gitignored and shared securely with the team.
 
-Everything in a single `.envs3.json` file. You decide whether to commit it.
+### Converting to JSON: `envs3 json`
 
+You can convert the config to JSON format at any time:
+
+**`envs3 json`** — moves everything to `.envs3.json`, removes `.env.envs3`:
 ```json
 {
   "schema_version": 1,
@@ -556,10 +522,27 @@ Everything in a single `.envs3.json` file. You decide whether to commit it.
     "read_access_key_id": "readonly_abc123",
     "read_secret_access_key": "readonly_secret_xyz"
   },
-  "defaults": {
-    "environment": "local"
-  }
+  "defaults": { "environment": "local" }
 }
+```
+
+**`envs3 json --keep-s3`** — splits into two files. Project config goes to `.envs3.json` (committable), S3 credentials stay in `.env.envs3`:
+
+`.envs3.json` (commit this):
+```json
+{
+  "schema_version": 1,
+  "project": "myproject",
+  "storage": { "type": "s3", "bucket": "myproject-envs", "region": "auto" },
+  "defaults": { "environment": "local" }
+}
+```
+
+`.env.envs3` (credentials only):
+```bash
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
+ENVS3_ACCESS_KEY_ID=readonly_abc123
+ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
 ```
 
 ### Priority Order
