@@ -85,6 +85,17 @@ var initCmd = &cobra.Command{
 			envs[i] = strings.TrimSpace(envs[i])
 		}
 
+		// Configuration mode
+		fmt.Println()
+		fmt.Println("Configuration mode:")
+		fmt.Println("  1. Hybrid — .envs3.json (commit) + .env.envs3 (secrets only) [default]")
+		fmt.Println("  2. Full .env — everything in .env.envs3 (nothing committed)")
+		fmt.Println("  3. Full JSON — everything in .envs3.json (you decide what to commit)")
+		modeChoice := prompt("Select (1-3) [1]: ")
+		if modeChoice == "" {
+			modeChoice = "1"
+		}
+
 		// Generate keypair
 		pub, priv, err := crypto.GenerateKeypair()
 		if err != nil {
@@ -143,22 +154,78 @@ var initCmd = &cobra.Command{
 			fmt.Printf("✓ Environment '%s' created (%d keys imported)\n", importEnv, len(importData))
 		}
 
-		// Write .env.envs3 (the primary config file)
-		envs3Cfg := &format.Envs3Config{
-			Project:              projectName,
-			Endpoint:             endpoint,
-			Bucket:               bucket,
-			Region:               region,
-			DefaultEnv:           envs[0],
-			AccessKeyID:          readKeyID,
-			SecretAccessKey:      readSecretKey,
-			WriteAccessKeyID:     writeKeyID,
-			WriteSecretAccessKey: writeSecretKey,
+		// Write config files based on mode
+		switch modeChoice {
+		case "2": // Full .env mode
+			envCfg := &format.Envs3Config{
+				Project:              projectName,
+				Endpoint:             endpoint,
+				Bucket:               bucket,
+				Region:               region,
+				DefaultEnv:           envs[0],
+				AccessKeyID:          readKeyID,
+				SecretAccessKey:      readSecretKey,
+				WriteAccessKeyID:     writeKeyID,
+				WriteSecretAccessKey: writeSecretKey,
+			}
+			if err := format.SaveEnvs3File(".", envCfg, false); err != nil {
+				return fmt.Errorf("save .env.envs3: %w", err)
+			}
+			fmt.Println("✓ .env.envs3 created (do NOT commit — share securely with team)")
+
+		case "3": // Full JSON mode
+			cfg := &format.ProjectConfig{
+				SchemaVersion: 1,
+				Project:       projectName,
+				Storage: format.StorageConfig{
+					Type:                "s3",
+					Endpoint:            endpoint,
+					Bucket:              bucket,
+					Region:              region,
+					ReadAccessKeyID:     readKeyID,
+					ReadSecretAccessKey: readSecretKey,
+				},
+				Defaults: format.DefaultsConfig{
+					Environment: envs[0],
+				},
+			}
+			if err := config.SaveProjectConfig(".", cfg); err != nil {
+				return fmt.Errorf("save .envs3.json: %w", err)
+			}
+			fmt.Println("✓ .envs3.json created (contains credentials — add to .gitignore if needed)")
+
+		default: // Hybrid mode (1)
+			// .envs3.json — project config, no credentials
+			cfg := &format.ProjectConfig{
+				SchemaVersion: 1,
+				Project:       projectName,
+				Storage: format.StorageConfig{
+					Type:   "s3",
+					Bucket: bucket,
+					Region: region,
+				},
+				Defaults: format.DefaultsConfig{
+					Environment: envs[0],
+				},
+			}
+			if err := config.SaveProjectConfig(".", cfg); err != nil {
+				return fmt.Errorf("save .envs3.json: %w", err)
+			}
+			fmt.Println("✓ .envs3.json created (commit this file)")
+
+			// .env.envs3 — credentials only
+			envCfg := &format.Envs3Config{
+				Endpoint:             endpoint,
+				AccessKeyID:          readKeyID,
+				SecretAccessKey:      readSecretKey,
+				WriteAccessKeyID:     writeKeyID,
+				WriteSecretAccessKey: writeSecretKey,
+			}
+			if err := format.SaveEnvs3File(".", envCfg, true); err != nil {
+				return fmt.Errorf("save .env.envs3: %w", err)
+			}
+			fmt.Println("✓ .env.envs3 created (do NOT commit — share securely with team)")
 		}
-		if err := format.SaveEnvs3File(".", envs3Cfg); err != nil {
-			return fmt.Errorf("save .env.envs3: %w", err)
-		}
-		fmt.Println("✓ .env.envs3 created (do NOT commit — share securely with your team)")
 
 		// Save initial local state
 		state := &format.LocalState{
@@ -170,11 +237,22 @@ var initCmd = &cobra.Command{
 		}
 
 		fmt.Println()
-		fmt.Println("Next steps:")
-		fmt.Println("  1. Add .env.envs3 to .gitignore (if not already)")
-		fmt.Println("  2. Share .env.envs3 with your team via a secure channel")
-		fmt.Println("  3. Optionally commit .envs3.json for non-secret project metadata")
-		fmt.Println("  4. Run 'envs3 pull' to sync")
+		switch modeChoice {
+		case "2":
+			fmt.Println("Next steps:")
+			fmt.Println("  1. Add .env.envs3 to .gitignore")
+			fmt.Println("  2. Share .env.envs3 with your team via a secure channel")
+			fmt.Println("  3. Run 'envs3 pull' to sync")
+		case "3":
+			fmt.Println("Next steps:")
+			fmt.Println("  1. Decide whether to commit or gitignore .envs3.json")
+			fmt.Println("  2. Run 'envs3 pull' to sync")
+		default:
+			fmt.Println("Next steps:")
+			fmt.Println("  1. Commit .envs3.json to your repository")
+			fmt.Println("  2. Share .env.envs3 with your team via a secure channel")
+			fmt.Println("  3. Run 'envs3 pull' to sync")
+		}
 
 		return nil
 	},

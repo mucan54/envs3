@@ -253,7 +253,7 @@ func TestKeyringJSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestEnvs3FileRoundTrip(t *testing.T) {
+func TestEnvs3FileFullMode(t *testing.T) {
 	cfg := &Envs3Config{
 		Project:              "myproject",
 		Endpoint:             "https://xxx.r2.cloudflarestorage.com",
@@ -268,7 +268,7 @@ func TestEnvs3FileRoundTrip(t *testing.T) {
 	}
 
 	var buf bytes.Buffer
-	if err := WriteEnvs3File(&buf, cfg); err != nil {
+	if err := WriteEnvs3File(&buf, cfg, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -286,40 +286,26 @@ func TestEnvs3FileRoundTrip(t *testing.T) {
 	if parsed.Bucket != "myproject-envs" {
 		t.Errorf("bucket: got %q", parsed.Bucket)
 	}
-	if parsed.Region != "auto" {
-		t.Errorf("region: got %q", parsed.Region)
-	}
-	if parsed.DefaultEnv != "local" {
-		t.Errorf("default_env: got %q", parsed.DefaultEnv)
-	}
 	if parsed.AccessKeyID != "readonly_abc" {
 		t.Errorf("access_key: got %q", parsed.AccessKeyID)
 	}
-	if parsed.SecretAccessKey != "readonly_secret" {
-		t.Errorf("secret_key: got %q", parsed.SecretAccessKey)
-	}
 	if parsed.WriteAccessKeyID != "readwrite_def" {
 		t.Errorf("write_key: got %q", parsed.WriteAccessKeyID)
-	}
-	if parsed.WriteSecretAccessKey != "readwrite_secret" {
-		t.Errorf("write_secret: got %q", parsed.WriteSecretAccessKey)
 	}
 	if parsed.HookPostPull != "make restart" {
 		t.Errorf("hook: got %q", parsed.HookPostPull)
 	}
 }
 
-func TestEnvs3FileReadOnly(t *testing.T) {
+func TestEnvs3FileCredentialsOnly(t *testing.T) {
 	cfg := &Envs3Config{
-		Project:         "myproject",
 		Endpoint:        "https://xxx.r2.cloudflarestorage.com",
-		Bucket:          "myproject-envs",
 		AccessKeyID:     "readonly_abc",
 		SecretAccessKey: "readonly_secret",
 	}
 
 	var buf bytes.Buffer
-	WriteEnvs3File(&buf, cfg)
+	WriteEnvs3File(&buf, cfg, true)
 
 	parsed, _ := ParseEnvs3File(&buf)
 
@@ -329,31 +315,70 @@ func TestEnvs3FileReadOnly(t *testing.T) {
 	if parsed.HasWriteCredentials() {
 		t.Error("should NOT have write credentials")
 	}
-	if parsed.WriteAccessKeyID != "" {
-		t.Error("write key should be empty")
+	// In credentials-only mode, project fields should be empty
+	if parsed.Project != "" {
+		t.Errorf("project should be empty, got %q", parsed.Project)
+	}
+	if parsed.Bucket != "" {
+		t.Errorf("bucket should be empty, got %q", parsed.Bucket)
 	}
 }
 
-func TestEnvs3ToProjectConfig(t *testing.T) {
-	cfg := &Envs3Config{
-		Project:      "myproject",
-		Bucket:       "mybucket",
-		Region:       "us-east-1",
-		DefaultEnv:   "staging",
-		HookPostPull: "make restart",
+func TestFullJSONMode(t *testing.T) {
+	cfg := ProjectConfig{
+		SchemaVersion: 1,
+		Project:       "myproject",
+		Storage: StorageConfig{
+			Type:                "s3",
+			Endpoint:            "https://xxx.r2.cloudflarestorage.com",
+			Bucket:              "myproject-envs",
+			Region:              "auto",
+			ReadAccessKeyID:     "readonly_abc",
+			ReadSecretAccessKey: "readonly_secret",
+		},
+		Defaults: DefaultsConfig{Environment: "local"},
 	}
 
-	pc := cfg.ToProjectConfig()
-	if pc.Project != "myproject" {
-		t.Errorf("project: got %q", pc.Project)
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if pc.Storage.Bucket != "mybucket" {
-		t.Errorf("bucket: got %q", pc.Storage.Bucket)
+
+	var decoded ProjectConfig
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		t.Fatal(err)
 	}
-	if pc.Defaults.Environment != "staging" {
-		t.Errorf("default env: got %q", pc.Defaults.Environment)
+
+	if decoded.Storage.Endpoint != "https://xxx.r2.cloudflarestorage.com" {
+		t.Errorf("endpoint: got %q", decoded.Storage.Endpoint)
 	}
-	if pc.Hooks == nil || pc.Hooks.PostPull != "make restart" {
-		t.Error("hooks not set")
+	if decoded.Storage.ReadAccessKeyID != "readonly_abc" {
+		t.Errorf("read_key: got %q", decoded.Storage.ReadAccessKeyID)
+	}
+}
+
+func TestHybridJSONOmitsCredentials(t *testing.T) {
+	cfg := ProjectConfig{
+		SchemaVersion: 1,
+		Project:       "myproject",
+		Storage: StorageConfig{
+			Type:   "s3",
+			Bucket: "myproject-envs",
+			Region: "auto",
+		},
+		Defaults: DefaultsConfig{Environment: "local"},
+	}
+
+	data, err := json.Marshal(cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	jsonStr := string(data)
+	if strings.Contains(jsonStr, "endpoint") {
+		t.Error("hybrid mode JSON should not contain endpoint field")
+	}
+	if strings.Contains(jsonStr, "read_access_key_id") {
+		t.Error("hybrid mode JSON should not contain credential fields")
 	}
 }

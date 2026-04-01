@@ -10,12 +10,16 @@ type ProjectConfig struct {
 	Hooks         *HooksConfig   `json:"hooks,omitempty"`
 }
 
-// StorageConfig holds non-sensitive storage metadata.
-// Credentials are stored separately in .env.envs3 (gitignored).
+// StorageConfig holds storage configuration.
+// In hybrid mode, only type/bucket/region are set (credentials in .env.envs3).
+// In full-JSON mode, all fields including endpoint and credentials are set.
 type StorageConfig struct {
-	Type   string `json:"type"`
-	Bucket string `json:"bucket"`
-	Region string `json:"region,omitempty"`
+	Type                string `json:"type"`
+	Endpoint            string `json:"endpoint,omitempty"`
+	Bucket              string `json:"bucket"`
+	Region              string `json:"region,omitempty"`
+	ReadAccessKeyID     string `json:"read_access_key_id,omitempty"`
+	ReadSecretAccessKey string `json:"read_secret_access_key,omitempty"`
 }
 
 // DefaultsConfig holds default settings.

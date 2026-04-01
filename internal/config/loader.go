@@ -62,7 +62,7 @@ func LoadFullConfig(startDir string) (*format.Envs3Config, string, error) {
 
 	cfg := &format.Envs3Config{}
 
-	// 1. Load from .envs3.json if it exists (backward compat / optional committed config)
+	// 1. Load from .envs3.json if it exists
 	jsonPath := filepath.Join(projectDir, configFileName)
 	if data, err := os.ReadFile(jsonPath); err == nil {
 		var jsonCfg format.ProjectConfig
@@ -73,6 +73,14 @@ func LoadFullConfig(startDir string) (*format.Envs3Config, string, error) {
 			cfg.DefaultEnv = jsonCfg.Defaults.Environment
 			if jsonCfg.Hooks != nil {
 				cfg.HookPostPull = jsonCfg.Hooks.PostPull
+			}
+			// Full-JSON mode: credentials may also be in .envs3.json
+			if jsonCfg.Storage.Endpoint != "" {
+				cfg.Endpoint = jsonCfg.Storage.Endpoint
+			}
+			if jsonCfg.Storage.ReadAccessKeyID != "" {
+				cfg.AccessKeyID = jsonCfg.Storage.ReadAccessKeyID
+				cfg.SecretAccessKey = jsonCfg.Storage.ReadSecretAccessKey
 			}
 		}
 	}
