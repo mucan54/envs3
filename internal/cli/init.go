@@ -1,0 +1,193 @@
+package cli
+
+import (
+	"fmt"
+	"os"
+	"regexp"
+	"strings"
+
+	"github.com/mucan54/envs3/internal/config"
+	"github.com/mucan54/envs3/internal/crypto"
+	"github.com/mucan54/envs3/internal/engine"
+	"github.com/mucan54/envs3/internal/format"
+	"github.com/mucan54/envs3/internal/storage"
+	"github.com/spf13/cobra"
+)
+
+var projectNameRegex = regexp.MustCompile(`^[a-z0-9-]+$`)
+
+func init() {
+	rootCmd.AddCommand(initCmd)
+}
+
+var initCmd = &cobra.Command{
+	Use:   "init",
+	Short: "Initialize a new envs3 project",
+	RunE: func(cmd *cobra.Command, args []string) error {
+		fmt.Println("envs3 — Project Initialization")
+		fmt.Println()
+
+		// Storage backend
+		fmt.Println("Storage backend:")
+		fmt.Println("  1. Cloudflare R2")
+		fmt.Println("  2. AWS S3")
+		fmt.Println("  3. MinIO")
+		fmt.Println("  4. Custom S3-compatible")
+		choice := prompt("Select (1-4): ")
+
+		storageType := "s3"
+		var endpoint, region string
+		switch choice {
+		case "1":
+			endpoint = prompt("R2 endpoint URL: ")
+			region = "auto"
+		case "2":
+			region = prompt("AWS region (e.g., us-east-1): ")
+			endpoint = fmt.Sprintf("https://s3.%s.amazonaws.com", region)
+		case "3":
+			endpoint = prompt("MinIO endpoint URL: ")
+			region = "us-east-1"
+		default:
+			endpoint = prompt("S3 endpoint URL: ")
+			region = prompt("Region (default: auto): ")
+			if region == "" {
+				region = "auto"
+			}
+		}
+
+		// Credentials (read-write for admin)
+		fmt.Println()
+		fmt.Println("Admin S3 credentials (read-write access):")
+		writeKeyID := prompt("Access Key ID: ")
+		writeSecretKey := prompt("Secret Access Key: ")
+
+		bucket := prompt("Bucket name: ")
+
+		// Read-only credentials
+		fmt.Println()
+		fmt.Println("Read-only S3 credentials (for team members):")
+		readKeyID := prompt("Read-only Access Key ID: ")
+		readSecretKey := prompt("Read-only Secret Access Key: ")
+
+		projectName := prompt("Project name: ")
+		if !projectNameRegex.MatchString(projectName) {
+			return fmt.Errorf("project name must match [a-z0-9-]+")
+		}
+
+		email := getUserEmail()
+
+		// Default environments
+		envsInput := prompt("Environments (comma-separated, default: local,staging,production): ")
+		if envsInput == "" {
+			envsInput = "local,staging,production"
+		}
+		envs := strings.Split(envsInput, ",")
+		for i := range envs {
+			envs[i] = strings.TrimSpace(envs[i])
+		}
+
+		// Generate keypair
+		pub, priv, err := crypto.GenerateKeypair()
+		if err != nil {
+			return fmt.Errorf("generate keypair: %w", err)
+		}
+
+		if err := config.SavePrivateKey(projectName, priv); err != nil {
+			return fmt.Errorf("save private key: %w", err)
+		}
+		fmt.Printf("✓ Keypair generated → %s\n", config.PrivateKeyPath(projectName))
+
+		// Check for .env import
+		var importEnv string
+		var importData map[string]string
+		if _, err := os.Stat(".env"); err == nil {
+			if confirm("Import existing .env?") {
+				importEnv = prompt("Import into environment (default: local): ")
+				if importEnv == "" {
+					importEnv = "local"
+				}
+				f, err := os.Open(".env")
+				if err != nil {
+					return err
+				}
+				defer f.Close()
+				importData, err = format.ParseDotEnv(f)
+				if err != nil {
+					return fmt.Errorf("parse .env: %w", err)
+				}
+			}
+		}
+
+		// Create S3 store with write credentials
+		store := storage.NewS3Store(storage.S3Config{
+			Endpoint:        endpoint,
+			Region:          region,
+			Bucket:          bucket,
+			AccessKeyID:     writeKeyID,
+			SecretAccessKey: writeSecretKey,
+		})
+
+		eng := engine.NewEngine(store, projectName)
+		if err := eng.Init(ctx(), engine.InitParams{
+			ProjectName:  projectName,
+			Email:        email,
+			Environments: envs,
+			ImportEnv:    importEnv,
+			ImportData:   importData,
+			PublicKey:    pub,
+		}); err != nil {
+			return fmt.Errorf("init: %w", err)
+		}
+
+		fmt.Printf("✓ Project created → s3://%s/%s/\n", bucket, projectName)
+		if importData != nil {
+			fmt.Printf("✓ Environment '%s' created (%d keys imported)\n", importEnv, len(importData))
+		}
+
+		// Write .envs3.json
+		cfg := &format.ProjectConfig{
+			SchemaVersion: 1,
+			Project:       projectName,
+			Storage: format.StorageConfig{
+				Type:                storageType,
+				Endpoint:            endpoint,
+				Bucket:              bucket,
+				Region:              region,
+				ReadAccessKeyID:     readKeyID,
+				ReadSecretAccessKey: readSecretKey,
+			},
+			Defaults: format.DefaultsConfig{
+				Environment: envs[0],
+			},
+		}
+		if err := config.SaveProjectConfig(".", cfg); err != nil {
+			return fmt.Errorf("save config: %w", err)
+		}
+		fmt.Println("✓ .envs3.json created (commit this file)")
+
+		// Save admin credentials
+		if err := config.SaveAdminCredentials(projectName, &format.AdminCredentials{
+			WriteAccessKeyID:     writeKeyID,
+			WriteSecretAccessKey: writeSecretKey,
+		}); err != nil {
+			return fmt.Errorf("save credentials: %w", err)
+		}
+
+		// Save initial local state
+		state := &format.LocalState{
+			Environments:      make(map[string]format.EnvState),
+			ActiveEnvironment: envs[0],
+		}
+		if err := config.SaveLocalState(projectName, state); err != nil {
+			return fmt.Errorf("save state: %w", err)
+		}
+
+		fmt.Println()
+		fmt.Println("Next steps:")
+		fmt.Println("  1. Commit .envs3.json to your repository")
+		fmt.Println("  2. Share the read-only S3 credentials with your team")
+		fmt.Println("  3. Run 'envs3 pull' to sync")
+
+		return nil
+	},
+}
