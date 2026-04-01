@@ -86,7 +86,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Println("✓")
 
-	// Find project directories (those containing project.json)
+	// Find project directories
 	type projectInfo struct {
 		Name string
 		Envs int
@@ -99,7 +99,6 @@ func runInit(cmd *cobra.Command, args []string) error {
 			name := k[:idx]
 			if !seen[name] {
 				seen[name] = true
-				// Try to read project.json to verify it's a real project
 				var pf format.ProjectFile
 				if data, _, err := store.Get(ctx(), storage.ProjectPath(name)); err == nil {
 					if json.Unmarshal(data, &pf) == nil {
@@ -149,11 +148,10 @@ func runInit(cmd *cobra.Command, args []string) error {
 	return initExistingProject(store, projectName, endpoint, region, bucket, accessKeyID, secretAccessKey)
 }
 
-// initExistingProject joins an existing project (replaces old "connect" flow)
+// initExistingProject joins an existing project
 func initExistingProject(store *storage.S3Store, projectName, endpoint, region, bucket, accessKeyID, secretAccessKey string) error {
 	fmt.Printf("\n── Connecting to '%s' ──\n\n", projectName)
 
-	// Load project metadata
 	var projectFile format.ProjectFile
 	data, _, err := store.Get(ctx(), storage.ProjectPath(projectName))
 	if err != nil {
@@ -182,9 +180,18 @@ func initExistingProject(store *storage.S3Store, projectName, endpoint, region, 
 		defaultEnv = projectFile.Environments[0]
 	}
 
-	// Write config files
-	if err := writeConfigFiles(projectName, endpoint, region, bucket, defaultEnv, accessKeyID, secretAccessKey, "", ""); err != nil {
-		return err
+	// Write .env.envs3 with everything
+	envCfg := &format.Envs3Config{
+		Project:         projectName,
+		Endpoint:        endpoint,
+		Bucket:          bucket,
+		Region:          region,
+		DefaultEnv:      defaultEnv,
+		AccessKeyID:     accessKeyID,
+		SecretAccessKey: secretAccessKey,
+	}
+	if err := format.SaveEnvs3File(".", envCfg, false); err != nil {
+		return fmt.Errorf("save .env.envs3: %w", err)
 	}
 
 	// Save local state
@@ -197,6 +204,7 @@ func initExistingProject(store *storage.S3Store, projectName, endpoint, region, 
 	fp := crypto.Fingerprint(pub)
 	fmt.Println()
 	fmt.Printf("✓ Keypair generated → %s\n", config.PrivateKeyPath(projectName))
+	fmt.Println("✓ .env.envs3 created")
 	fmt.Printf("  Fingerprint: %s\n", fp)
 	fmt.Println()
 	fmt.Println("Next steps:")
@@ -204,11 +212,14 @@ func initExistingProject(store *storage.S3Store, projectName, endpoint, region, 
 	fmt.Println("     envs3 pubkey --output my.pub")
 	fmt.Println("  2. Once the admin adds you, run:")
 	fmt.Println("     envs3 pull")
+	fmt.Println()
+	fmt.Println("Tip: Run 'envs3 json --keep-s3' to split config into")
+	fmt.Println("     .envs3.json (committable) + .env.envs3 (secrets only)")
 
 	return nil
 }
 
-// initNewProject creates a new project in the bucket (the old "init" flow)
+// initNewProject creates a new project in the bucket
 func initNewProject(store *storage.S3Store, endpoint, region, bucket, accessKeyID, secretAccessKey string) error {
 	fmt.Println()
 	fmt.Println("── Creating new project ──")
@@ -230,11 +241,10 @@ func initNewProject(store *storage.S3Store, endpoint, region, bucket, accessKeyI
 		envs[i] = strings.TrimSpace(envs[i])
 	}
 
-	// Check if we need separate write credentials
+	// Check write access
 	writeKeyID := accessKeyID
 	writeSecretKey := secretAccessKey
 
-	// Try a write to see if current credentials have write access
 	fmt.Print("Checking write access... ")
 	testKey := projectName + "/.envs3-test"
 	_, writeErr := store.Put(ctx(), testKey, []byte("test"), "")
@@ -247,7 +257,6 @@ func initNewProject(store *storage.S3Store, endpoint, region, bucket, accessKeyI
 		writeKeyID = prompt("  Access Key ID: ")
 		writeSecretKey = prompt("  Secret Access Key: ")
 
-		// Create new store with write credentials
 		store = storage.NewS3Store(storage.S3Config{
 			Endpoint:        endpoint,
 			Region:          region,
@@ -257,7 +266,6 @@ func initNewProject(store *storage.S3Store, endpoint, region, bucket, accessKeyI
 		})
 	} else {
 		fmt.Println("✓")
-		// Clean up test object
 		store.Delete(ctx(), testKey)
 	}
 
@@ -309,25 +317,31 @@ func initNewProject(store *storage.S3Store, endpoint, region, bucket, accessKeyI
 		fmt.Printf("✓ Environment '%s' created (%d keys imported)\n", importEnv, len(importData))
 	}
 
-	// Determine read-only credentials
-	// If the entered credentials are write credentials, ask for read-only ones
+	// Determine read-only vs write credentials
 	readKeyID := accessKeyID
 	readSecretKey := secretAccessKey
-	if writeKeyID != accessKeyID {
-		// User entered separate write credentials, original ones are read-only
-		readKeyID = accessKeyID
-		readSecretKey = secretAccessKey
-	} else {
-		// Same credentials used — ask if they have separate read-only ones
+	if writeKeyID == accessKeyID {
+		// Same credentials — ask if they have separate read-only ones
 		if confirm("Do you have separate read-only S3 credentials for team members?") {
 			readKeyID = prompt("  Read-only Access Key ID: ")
 			readSecretKey = prompt("  Read-only Secret Access Key: ")
 		}
 	}
 
-	// Write config files
-	if err := writeConfigFiles(projectName, endpoint, region, bucket, envs[0], readKeyID, readSecretKey, writeKeyID, writeSecretKey); err != nil {
-		return err
+	// Write .env.envs3 with everything
+	envCfg := &format.Envs3Config{
+		Project:              projectName,
+		Endpoint:             endpoint,
+		Bucket:               bucket,
+		Region:               region,
+		DefaultEnv:           envs[0],
+		AccessKeyID:          readKeyID,
+		SecretAccessKey:      readSecretKey,
+		WriteAccessKeyID:     writeKeyID,
+		WriteSecretAccessKey: writeSecretKey,
+	}
+	if err := format.SaveEnvs3File(".", envCfg, false); err != nil {
+		return fmt.Errorf("save .env.envs3: %w", err)
 	}
 
 	// Save local state
@@ -338,93 +352,14 @@ func initNewProject(store *storage.S3Store, endpoint, region, bucket, accessKeyI
 	config.SaveLocalState(projectName, state)
 
 	fmt.Printf("✓ Keypair generated → %s\n", config.PrivateKeyPath(projectName))
+	fmt.Println("✓ .env.envs3 created")
 	fmt.Println()
 	fmt.Println("Next steps:")
-	fmt.Println("  1. Commit .envs3.json to your repository")
-	fmt.Println("  2. Share .env.envs3 with your team via a secure channel")
-	fmt.Println("  3. Run 'envs3 pull' to sync")
-
-	return nil
-}
-
-// writeConfigFiles writes .envs3.json and .env.envs3 based on config mode selection
-func writeConfigFiles(projectName, endpoint, region, bucket, defaultEnv, readKeyID, readSecretKey, writeKeyID, writeSecretKey string) error {
-	// Config mode selection
+	fmt.Println("  1. Share .env.envs3 with your team (remove write credentials first)")
+	fmt.Println("  2. Run 'envs3 pull' to sync")
 	fmt.Println()
-	fmt.Println("Configuration mode:")
-	fmt.Println("  1. Hybrid — .envs3.json (commit) + .env.envs3 (secrets only) [default]")
-	fmt.Println("  2. Full .env — everything in .env.envs3 (nothing committed)")
-	fmt.Println("  3. Full JSON — everything in .envs3.json (you decide what to commit)")
-	modeChoice := prompt("Select (1-3) [1]: ")
-	if modeChoice == "" {
-		modeChoice = "1"
-	}
-
-	switch modeChoice {
-	case "2": // Full .env
-		envCfg := &format.Envs3Config{
-			Project:              projectName,
-			Endpoint:             endpoint,
-			Bucket:               bucket,
-			Region:               region,
-			DefaultEnv:           defaultEnv,
-			AccessKeyID:          readKeyID,
-			SecretAccessKey:      readSecretKey,
-			WriteAccessKeyID:     writeKeyID,
-			WriteSecretAccessKey: writeSecretKey,
-		}
-		if err := format.SaveEnvs3File(".", envCfg, false); err != nil {
-			return fmt.Errorf("save .env.envs3: %w", err)
-		}
-		fmt.Println("✓ .env.envs3 created (do NOT commit — share securely with team)")
-
-	case "3": // Full JSON
-		cfg := &format.ProjectConfig{
-			SchemaVersion: 1,
-			Project:       projectName,
-			Storage: format.StorageConfig{
-				Type:                "s3",
-				Endpoint:            endpoint,
-				Bucket:              bucket,
-				Region:              region,
-				ReadAccessKeyID:     readKeyID,
-				ReadSecretAccessKey: readSecretKey,
-			},
-			Defaults: format.DefaultsConfig{Environment: defaultEnv},
-		}
-		if err := config.SaveProjectConfig(".", cfg); err != nil {
-			return fmt.Errorf("save .envs3.json: %w", err)
-		}
-		fmt.Println("✓ .envs3.json created (contains credentials — add to .gitignore if needed)")
-
-	default: // Hybrid
-		cfg := &format.ProjectConfig{
-			SchemaVersion: 1,
-			Project:       projectName,
-			Storage: format.StorageConfig{
-				Type:   "s3",
-				Bucket: bucket,
-				Region: region,
-			},
-			Defaults: format.DefaultsConfig{Environment: defaultEnv},
-		}
-		if err := config.SaveProjectConfig(".", cfg); err != nil {
-			return fmt.Errorf("save .envs3.json: %w", err)
-		}
-		fmt.Println("✓ .envs3.json created (commit this file)")
-
-		envCfg := &format.Envs3Config{
-			Endpoint:             endpoint,
-			AccessKeyID:          readKeyID,
-			SecretAccessKey:      readSecretKey,
-			WriteAccessKeyID:     writeKeyID,
-			WriteSecretAccessKey: writeSecretKey,
-		}
-		if err := format.SaveEnvs3File(".", envCfg, true); err != nil {
-			return fmt.Errorf("save .env.envs3: %w", err)
-		}
-		fmt.Println("✓ .env.envs3 created (do NOT commit — share securely with team)")
-	}
+	fmt.Println("Tip: Run 'envs3 json --keep-s3' to split config into")
+	fmt.Println("     .envs3.json (committable) + .env.envs3 (secrets only)")
 
 	return nil
 }

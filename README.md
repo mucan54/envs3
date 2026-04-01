@@ -177,7 +177,9 @@ These commands operate on remote state **without touching your local `.env`**:
 
 | Command | Description |
 |---------|-------------|
-| `envs3 connect` | Connect to an existing project |
+| `envs3 connect` | Alias for `envs3 init` |
+| `envs3 json` | Convert `.env.envs3` config to `.envs3.json` |
+| `envs3 json --keep-s3` | Move project config to JSON, keep credentials in `.env.envs3` |
 
 ### Global Flags
 
@@ -481,55 +483,18 @@ Pulls start with a lightweight HEAD request (~50ms) to check if the ETag has cha
 
 ## Configuration Files
 
-envs3 supports three configuration modes, selected during `envs3 init`:
+### Default: `.env.envs3`
 
-### Mode 1: Hybrid (default, recommended)
-
-Two files — project config committed, credentials gitignored:
-
-**`.envs3.json`** (committed to git):
-```json
-{
-  "schema_version": 1,
-  "project": "myproject",
-  "storage": {
-    "type": "s3",
-    "bucket": "myproject-envs",
-    "region": "auto"
-  },
-  "defaults": {
-    "environment": "local"
-  }
-}
-```
-
-**`.env.envs3`** (gitignored, shared securely with team):
-```bash
-# envs3 storage credentials
-ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
-ENVS3_ACCESS_KEY_ID=readonly_abc123
-ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
-
-# Write credentials (admin only — uncomment if you have read-write access)
-# ENVS3_WRITE_ACCESS_KEY_ID=readwrite_def456
-# ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
-```
-
-New team members clone the repo (get `.envs3.json` with project config), then receive `.env.envs3` from the admin (just 3 lines of credentials).
-
-### Mode 2: Full .env
-
-Everything in a single `.env.envs3` file. Nothing committed to git.
+`envs3 init` writes everything to `.env.envs3` — a single `.env`-format file:
 
 ```bash
-# envs3 configuration (full mode)
+# envs3 configuration
 ENVS3_PROJECT=myproject
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
 ENVS3_BUCKET=myproject-envs
 ENVS3_REGION=auto
 ENVS3_DEFAULT_ENV=local
 
-# Storage credentials
-ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
 ENVS3_ACCESS_KEY_ID=readonly_abc123
 ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
 
@@ -538,10 +503,13 @@ ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
 # ENVS3_WRITE_SECRET_ACCESS_KEY=readwrite_secret_uvw
 ```
 
-### Mode 3: Full JSON
+This file is gitignored and shared securely with the team.
 
-Everything in a single `.envs3.json` file. You decide whether to commit it.
+### Converting to JSON: `envs3 json`
 
+You can convert the config to JSON format at any time:
+
+**`envs3 json`** — moves everything to `.envs3.json`, removes `.env.envs3`:
 ```json
 {
   "schema_version": 1,
@@ -554,10 +522,27 @@ Everything in a single `.envs3.json` file. You decide whether to commit it.
     "read_access_key_id": "readonly_abc123",
     "read_secret_access_key": "readonly_secret_xyz"
   },
-  "defaults": {
-    "environment": "local"
-  }
+  "defaults": { "environment": "local" }
 }
+```
+
+**`envs3 json --keep-s3`** — splits into two files. Project config goes to `.envs3.json` (committable), S3 credentials stay in `.env.envs3`:
+
+`.envs3.json` (commit this):
+```json
+{
+  "schema_version": 1,
+  "project": "myproject",
+  "storage": { "type": "s3", "bucket": "myproject-envs", "region": "auto" },
+  "defaults": { "environment": "local" }
+}
+```
+
+`.env.envs3` (credentials only):
+```bash
+ENVS3_ENDPOINT=https://xxx.r2.cloudflarestorage.com
+ENVS3_ACCESS_KEY_ID=readonly_abc123
+ENVS3_SECRET_ACCESS_KEY=readonly_secret_xyz
 ```
 
 ### Priority Order
