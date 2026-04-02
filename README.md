@@ -127,8 +127,18 @@ make build
 |---------|-------------|
 | `envs3 init` | Initialize a new project (interactive) |
 | `envs3 pull [env]` | Fetch and decrypt secrets to `.env` |
+| `envs3 pull --token=TOKEN` | Pull using service token (production) |
+| `envs3 pull --user=www-data` | Set file owner after pull |
 | `envs3 push` | Push local `.env` changes to the active environment |
 | `envs3 status` | Show current project state |
+
+### Production
+
+| Command | Description |
+|---------|-------------|
+| `envs3 sync --token=TOKEN` | Sync secrets using token (no config files needed) |
+| `envs3 run` | Daemon: watch S3, auto-pull on changes |
+| `envs3 run --restart="cmd"` | Auto-pull + run command after update |
 
 ### Remote Operations
 
@@ -639,6 +649,85 @@ envs3 audit --env=production         # Filter by environment
 envs3 audit --actor=can@company.com  # Filter by who
 envs3 audit --action=push            # Filter by action type
 ```
+
+## Production Deployment
+
+### Model
+
+In production, **no one SSHs into the server**. Secrets are managed remotely and deployed via CI/CD:
+
+```
+Developer → envs3 set KEY=VAL → S3 (encrypted)
+                                    ↓
+GitHub Actions → SSH → envs3 pull --token=$TOKEN → .env → restart
+```
+
+The server has no envs3 config files, no private keys — only the `envs3` binary and the resulting `.env` file with restricted permissions.
+
+### GitHub Actions Deploy
+
+```yaml
+steps:
+  - name: Deploy secrets
+    run: |
+      ssh server "envs3 pull --token=${{ secrets.ENVS3_TOKEN }} --user=www-data && systemctl restart php-fpm"
+```
+
+### Three commands for production
+
+```bash
+# 1. One-time deploy (CI/CD script)
+envs3 pull --token=$TOKEN --user=www-data
+
+# 2. Token-only sync (no config files needed)
+envs3 sync --token=$TOKEN --user=www-data
+
+# 3. Daemon mode (watches for changes, auto-restarts)
+ENVS3_TOKEN=xxx envs3 run --user=www-data --restart="systemctl restart php-fpm"
+```
+
+### systemd Service (with auto-restart on reboot)
+
+```ini
+# /etc/systemd/system/myapp-secrets.service
+[Unit]
+Description=envs3 secret watcher
+Before=php-fpm.service
+
+[Service]
+Environment=ENVS3_TOKEN=your_token_here
+ExecStart=/usr/local/bin/envs3 run --user=www-data --restart="systemctl restart php-fpm"
+Restart=always
+
+[Install]
+WantedBy=multi-user.target
+```
+
+### Docker
+
+```dockerfile
+# In entrypoint.sh:
+envs3 pull --token=$ENVS3_TOKEN
+exec "$@"
+```
+
+```yaml
+# docker-compose.yml
+services:
+  app:
+    environment:
+      - ENVS3_TOKEN=${ENVS3_TOKEN}
+    command: ["sh", "-c", "envs3 pull --token=$$ENVS3_TOKEN && php-fpm -F"]
+```
+
+### Security Model
+
+| What | Where | Who can access |
+|---|---|---|
+| Token | GitHub Secrets only | Only CI/CD pipeline |
+| `.env` file | Server disk (600, www-data) | Only application process |
+| S3 credentials | Inside token (temporary) | Nothing persisted on server |
+| Private key | Inside token (temporary) | Nothing persisted on server |
 
 ## Cloud Roadmap
 
