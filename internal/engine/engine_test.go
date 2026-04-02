@@ -4,6 +4,7 @@ import (
 	"context"
 	"testing"
 
+	"github.com/mucan54/envs3/internal/config"
 	"github.com/mucan54/envs3/internal/crypto"
 	"github.com/mucan54/envs3/internal/storage"
 )
@@ -452,5 +453,78 @@ func TestListEnvs(t *testing.T) {
 	}
 	if len(envs) != 2 {
 		t.Fatalf("expected 2 envs, got %d", len(envs))
+	}
+}
+
+func TestTokenSurvivesMemberRemoval(t *testing.T) {
+	eng, priv, pub := setupTest(t)
+	ctx := context.Background()
+
+	// Add a secret
+	eng.Set(ctx, "local", "admin@test.com",
+		map[string]string{"SECRET": "token-test-value"}, nil, priv, pub)
+
+	// Create a token for local environment
+	s3Cfg := storage.S3Config{
+		Endpoint: "https://test.endpoint.com",
+		Bucket:   "test-bucket",
+		AccessKeyID: "test-key",
+		SecretAccessKey: "test-secret",
+	}
+	tokenStr, err := eng.CreateToken(ctx, "ci-deploy", "local", "ro", "admin@test.com", 0, s3Cfg, priv, pub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tokenStr == "" {
+		t.Fatal("empty token")
+	}
+
+	// Parse the token to get its keypair
+	tokenPayload, err := config.ParseServiceToken(tokenStr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenPriv, err := crypto.DecodeKey(tokenPayload.PrivateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tokenPub, err := crypto.DecodeKey(tokenPayload.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// Verify token can pull
+	result, err := eng.Pull(ctx, "local", tokenPriv, tokenPub, "")
+	if err != nil {
+		t.Fatalf("token pull before member removal: %v", err)
+	}
+	if result.Secrets["SECRET"] != "token-test-value" {
+		t.Errorf("token pull got wrong value: %q", result.Secrets["SECRET"])
+	}
+
+	// Add a member, then remove them (triggers DEK rotation)
+	memberPub, _, _ := crypto.GenerateKeypair()
+	eng.AddMember(ctx, memberPub, "member@test.com", "member", []string{"local"}, priv, pub)
+	err = eng.RemoveMember(ctx, "member@test.com", []string{"local"}, priv, pub, "admin@test.com")
+	if err != nil {
+		t.Fatalf("remove member: %v", err)
+	}
+
+	// Token should STILL work after DEK rotation
+	result2, err := eng.Pull(ctx, "local", tokenPriv, tokenPub, "")
+	if err != nil {
+		t.Fatalf("token pull AFTER member removal (DEK rotation): %v", err)
+	}
+	if result2.Secrets["SECRET"] != "token-test-value" {
+		t.Errorf("token pull after rotation got wrong value: %q", result2.Secrets["SECRET"])
+	}
+
+	// Admin should also still work
+	result3, err := eng.Pull(ctx, "local", priv, pub, "")
+	if err != nil {
+		t.Fatalf("admin pull after rotation: %v", err)
+	}
+	if result3.Secrets["SECRET"] != "token-test-value" {
+		t.Error("admin pull after rotation got wrong value")
 	}
 }
