@@ -66,6 +66,19 @@ func (e *Engine) AddMember(ctx context.Context, newPub [32]byte, email, role str
 		return fmt.Errorf("update members: %w", err)
 	}
 
+	// Audit log
+	adminFP := crypto.Fingerprint(adminPub)
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action:      "member_add",
+		Actor:       email,
+		Fingerprint: adminFP,
+		Details: &format.AuditDetails{
+			MemberEmail:  email,
+			MemberRole:   role,
+			Environments: envs,
+		},
+	})
+
 	return nil
 }
 
@@ -129,6 +142,16 @@ func (e *Engine) RemoveMember(ctx context.Context, email string, envs []string, 
 	if _, err := e.putJSON(ctx, storage.MembersPath(e.Project), &members, membersETag); err != nil {
 		return fmt.Errorf("update members: %w", err)
 	}
+
+	// Audit log
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action: "member_remove",
+		Actor:  adminEmail,
+		Details: &format.AuditDetails{
+			MemberEmail:  email,
+			Environments: affectedEnvs,
+		},
+	})
 
 	return nil
 }

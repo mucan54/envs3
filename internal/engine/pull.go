@@ -66,3 +66,14 @@ func (e *Engine) Pull(ctx context.Context, env string, priv, pub [32]byte, cache
 		ETag:        etag,
 	}, nil
 }
+
+// AuditPull logs a pull operation to the audit trail.
+func (e *Engine) AuditPull(ctx context.Context, env, actor, fingerprint string, version int) {
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action:      "pull",
+		Actor:       actor,
+		Fingerprint: fingerprint,
+		Environment: env,
+		Details:     &format.AuditDetails{ToVersion: version},
+	})
+}

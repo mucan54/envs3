@@ -90,11 +90,39 @@ func (e *Engine) Push(ctx context.Context, env, email string, localSecrets map[s
 		return nil, fmt.Errorf("push: %w", err)
 	}
 
-	return &PushResult{
+	result := &PushResult{
 		OldVersion: currentBundle.Version,
 		NewVersion: newVersion,
 		Changes:    changes,
-	}, nil
+	}
+
+	// Audit log
+	details := changesToAuditDetails(changes)
+	details.FromVersion = currentBundle.Version
+	details.ToVersion = newVersion
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action:      "push",
+		Actor:       email,
+		Environment: env,
+		Details:     details,
+	})
+
+	return result, nil
+}
+
+func changesToAuditDetails(changes []format.Change) *format.AuditDetails {
+	d := &format.AuditDetails{}
+	for _, c := range changes {
+		switch c.Action {
+		case "added":
+			d.KeysAdded = append(d.KeysAdded, c.Key)
+		case "updated":
+			d.KeysUpdated = append(d.KeysUpdated, c.Key)
+		case "removed":
+			d.KeysRemoved = append(d.KeysRemoved, c.Key)
+		}
+	}
+	return d
 }
 
 func computeChanges(current, local map[string]string) []format.Change {

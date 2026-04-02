@@ -173,6 +173,18 @@ These commands operate on remote state **without touching your local `.env`**:
 | `envs3 token list` | List all tokens |
 | `envs3 token revoke <name>` | Revoke a token (triggers DEK rotation) |
 
+### OWASP Compliance
+
+| Command | Description |
+|---------|-------------|
+| `envs3 compliance [--env=ENV]` | Check OWASP secrets management compliance |
+| `envs3 audit` | View audit log (who did what, when) |
+| `envs3 audit --env=production` | Filter audit by environment |
+| `envs3 audit --actor=email` | Filter audit by actor |
+| `envs3 meta set KEY --rotation-days=90` | Set rotation policy for a secret |
+| `envs3 meta set KEY --expires-at=2026-12-31` | Set expiry date for a secret |
+| `envs3 meta set KEY --tags=db,critical` | Add tags to a secret |
+
 ### Other
 
 | Command | Description |
@@ -574,6 +586,76 @@ These should be in your `.gitignore`:
 | S3-compatible storage | No | No | No | **Yes** |
 | Free tier | Yes | Limited | Limited | **Unlimited (own storage)** |
 | CI/CD tokens | No | Yes | Yes | **Yes** |
+
+## OWASP Compliance
+
+envs3 implements OWASP Secrets Management best practices. Run `envs3 compliance` to check your project:
+
+```
+envs3 — OWASP Compliance Check
+
+✓ Encryption at rest (AES-256-GCM)
+✓ Encryption in transit (TLS via S3)
+✓ Client-side encryption (zero-knowledge)
+✓ Envelope encryption (X25519 + AES-256-GCM)
+✓ Per-environment access control (keyring-based)
+
+✗ [CRITICAL] production/DB_PASSWORD — last rotated 120 days ago (policy: every 90 days)
+⚠ [WARNING] production/API_KEY — expires in 5 days
+ℹ [INFO] staging/NEW_KEY — no rotation policy set
+```
+
+### What envs3 implements (CLI-only, no server needed)
+
+| OWASP Requirement | Status | How |
+|---|---|---|
+| Encryption at rest | ✓ | AES-256-GCM per value |
+| Encryption in transit | ✓ | S3 TLS |
+| Audit logging | ✓ | Every operation logged to S3 `audit/` trail |
+| Secret rotation tracking | ✓ | Per-key `rotation_days` policy with warnings |
+| Secret expiry/TTL | ✓ | Per-key `expires_at` with expiry alerts |
+| Least privilege (per-env) | ✓ | Keyring-based per-environment access |
+| Secrets outside code/config | ✓ | Encrypted in S3, never in source code |
+| Secret tagging | ✓ | Per-key tags for organization |
+
+### Setting rotation policies
+
+```bash
+# Set 90-day rotation policy
+envs3 meta set DB_PASSWORD --rotation-days=90 --env=production
+
+# Set expiry date
+envs3 meta set API_KEY --expires-at=2026-12-31 --env=production
+
+# Add tags
+envs3 meta set STRIPE_KEY --tags=payment,critical,pci --env=production
+```
+
+### Viewing audit trail
+
+```bash
+envs3 audit                          # All recent operations
+envs3 audit --env=production         # Filter by environment
+envs3 audit --actor=can@company.com  # Filter by who
+envs3 audit --action=push            # Filter by action type
+```
+
+## Cloud Roadmap
+
+The following OWASP requirements need a server component and are planned for the cloud version (`envs3 upgrade`):
+
+| Feature | OWASP Requirement | Status |
+|---|---|---|
+| Automatic scheduled rotation | Credentials should have limited lifetime | Planned |
+| Runtime secret injection (API) | Secrets injected at deployment, not stored in config | Planned |
+| Developer never sees prod secrets | Separation of duties | Planned |
+| Per-secret access policies | Least privilege per secret, not per environment | Planned |
+| Real-time notifications | Alert on expiry, rotation, unauthorized access | Planned |
+| Compliance certifications | SOC 2, HIPAA, PCI-DSS audit trail | Planned |
+| Web dashboard | Visual secret management and audit review | Planned |
+| Approval workflows | Require approval for production changes | Planned |
+
+The cloud version will add a thin API layer between CLI and S3 — storage remains in your bucket (data ownership unchanged). Single command upgrade: `envs3 upgrade`.
 
 ## Development
 
