@@ -12,6 +12,7 @@ import (
 // PullResult contains the result of a pull operation.
 type PullResult struct {
 	Secrets     map[string]string
+	Metadata    map[string]format.SecretMetadata
 	Environment string
 	Version     int
 	UpdatedAt   string
@@ -60,6 +61,7 @@ func (e *Engine) Pull(ctx context.Context, env string, priv, pub [32]byte, cache
 
 	return &PullResult{
 		Secrets:     secrets,
+		Metadata:    bundle.Metadata,
 		Environment: bundle.Environment,
 		Version:     bundle.Version,
 		UpdatedAt:   bundle.UpdatedAt,

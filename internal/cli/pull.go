@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"sort"
+	"time"
 
 	"github.com/mucan54/envs3/internal/config"
 	"github.com/mucan54/envs3/internal/format"
@@ -126,6 +127,30 @@ var pullCmd = &cobra.Command{
 		for k := range oldKeys {
 			if _, ok := result.Secrets[k]; !ok {
 				fmt.Printf("  - %s removed\n", k)
+			}
+		}
+
+		// Expiry & rotation warnings (OWASP compliance)
+		if result.Metadata != nil {
+			now := time.Now().UTC()
+			for key, meta := range result.Metadata {
+				if meta.ExpiresAt != "" {
+					if exp, err := time.Parse(time.RFC3339, meta.ExpiresAt); err == nil {
+						if now.After(exp) {
+							fmt.Printf("  ✗ %s EXPIRED (since %s)\n", key, meta.ExpiresAt[:10])
+						} else if exp.Sub(now).Hours() < 7*24 {
+							fmt.Printf("  ⚠ %s expires in %d days\n", key, int(exp.Sub(now).Hours()/24))
+						}
+					}
+				}
+				if meta.RotationDays > 0 && meta.RotatedAt != "" {
+					if rot, err := time.Parse(time.RFC3339, meta.RotatedAt); err == nil {
+						daysSince := int(now.Sub(rot).Hours() / 24)
+						if daysSince > meta.RotationDays {
+							fmt.Printf("  ✗ %s rotation overdue (%d days, policy: %d days)\n", key, daysSince, meta.RotationDays)
+						}
+					}
+				}
 			}
 		}
 
