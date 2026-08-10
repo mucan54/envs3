@@ -20,6 +20,7 @@ type Member struct {
 // TokenMeta represents token metadata in members.json.
 type TokenMeta struct {
 	Name        string  `json:"name"`
+	PublicKey   string  `json:"public_key"`   // token's X25519 public key (for DEK re-sealing on rotation)
 	Fingerprint string  `json:"fingerprint"`
 	Environment string  `json:"environment"`
 	Permissions string  `json:"permissions"`

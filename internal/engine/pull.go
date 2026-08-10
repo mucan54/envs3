@@ -12,6 +12,7 @@ import (
 // PullResult contains the result of a pull operation.
 type PullResult struct {
 	Secrets     map[string]string
+	Metadata    map[string]format.SecretMetadata
 	Environment string
 	Version     int
 	UpdatedAt   string
@@ -60,9 +61,21 @@ func (e *Engine) Pull(ctx context.Context, env string, priv, pub [32]byte, cache
 
 	return &PullResult{
 		Secrets:     secrets,
+		Metadata:    bundle.Metadata,
 		Environment: bundle.Environment,
 		Version:     bundle.Version,
 		UpdatedAt:   bundle.UpdatedAt,
 		ETag:        etag,
 	}, nil
+}
+
+// AuditPull logs a pull operation to the audit trail.
+func (e *Engine) AuditPull(ctx context.Context, env, actor, fingerprint string, version int) {
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action:      "pull",
+		Actor:       actor,
+		Fingerprint: fingerprint,
+		Environment: env,
+		Details:     &format.AuditDetails{ToVersion: version},
+	})
 }

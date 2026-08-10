@@ -66,6 +66,19 @@ func (e *Engine) AddMember(ctx context.Context, newPub [32]byte, email, role str
 		return fmt.Errorf("update members: %w", err)
 	}
 
+	// Audit log
+	adminFP := crypto.Fingerprint(adminPub)
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action:      "member_add",
+		Actor:       email,
+		Fingerprint: adminFP,
+		Details: &format.AuditDetails{
+			MemberEmail:  email,
+			MemberRole:   role,
+			Environments: envs,
+		},
+	})
+
 	return nil
 }
 
@@ -130,6 +143,16 @@ func (e *Engine) RemoveMember(ctx context.Context, email string, envs []string, 
 		return fmt.Errorf("update members: %w", err)
 	}
 
+	// Audit log
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action: "member_remove",
+		Actor:  adminEmail,
+		Details: &format.AuditDetails{
+			MemberEmail:  email,
+			Environments: affectedEnvs,
+		},
+	})
+
 	return nil
 }
 
@@ -181,7 +204,6 @@ func (e *Engine) rotateDEK(ctx context.Context, env, removedFP string, adminPriv
 		if m.Fingerprint == removedFP {
 			continue
 		}
-		// Check if this member has access to this env
 		hasAccess := false
 		for _, mEnv := range m.Environments {
 			if mEnv == env {
@@ -203,6 +225,28 @@ func (e *Engine) rotateDEK(ctx context.Context, env, removedFP string, adminPriv
 		}
 		newWrapped = append(newWrapped, format.WrappedEntry{
 			Fingerprint: m.Fingerprint,
+			WrappedDEK:  base64.StdEncoding.EncodeToString(sealed),
+		})
+	}
+
+	// Re-seal for active tokens on this environment (tokens survive member removal)
+	for _, t := range members.Tokens {
+		if t.Environment != env || t.Fingerprint == removedFP {
+			continue
+		}
+		if t.PublicKey == "" {
+			continue // legacy token without public key
+		}
+		pub, err := crypto.DecodeKey(t.PublicKey)
+		if err != nil {
+			continue
+		}
+		sealed, err := crypto.SealBox(newDEK, pub)
+		if err != nil {
+			continue
+		}
+		newWrapped = append(newWrapped, format.WrappedEntry{
+			Fingerprint: t.Fingerprint,
 			WrappedDEK:  base64.StdEncoding.EncodeToString(sealed),
 		})
 	}

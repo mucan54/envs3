@@ -102,9 +102,22 @@ func (e *Engine) Set(ctx context.Context, env, email string, setKVs map[string]s
 		return nil, fmt.Errorf("set: %w", err)
 	}
 
-	return &SetResult{
+	result := &SetResult{
 		OldVersion: currentBundle.Version,
 		NewVersion: newVersion,
 		Changes:    changes,
-	}, nil
+	}
+
+	// Audit log
+	details := changesToAuditDetails(changes)
+	details.FromVersion = currentBundle.Version
+	details.ToVersion = newVersion
+	e.AuditLog(ctx, &format.AuditEntry{
+		Action:      "set",
+		Actor:       email,
+		Environment: env,
+		Details:     details,
+	})
+
+	return result, nil
 }
